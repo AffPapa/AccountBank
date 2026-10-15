@@ -38,6 +38,7 @@ public:
 
 	static constexpr auto kMaxAccounts = 3;
 	static constexpr auto kPremiumMaxAccounts = 6;
+	static constexpr auto kAccountBankMaxAccounts = 30;
 
 	explicit Domain(const QString &dataName);
 	~Domain();
@@ -160,7 +161,7 @@ private:
 	bool _unreadBadgeUpdateScheduled = false;
 	bool _passcodeDeriving = false;
 
-	rpl::variable<int> _lastMaxAccounts;
+	rpl::variable<int> _lastMaxAccounts = kAccountBankMaxAccounts;
 
 	rpl::lifetime _activeLifetime;
 	rpl::lifetime _lifetime;

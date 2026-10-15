@@ -2,6 +2,13 @@
 
 AccountBank is an experimental, separate macOS fork of Telegram Desktop. It targets current Apple Silicon Macs. This repository does not contain a tested AccountBank app or a download.
 
+## Current implementation
+
+- The macOS app uses the AccountBank name, bundle identifier, URL scheme, and application data folder. Development runs must also pass a dedicated `-workdir` inside the project workspace.
+- The source permits up to 30 account slots when adding accounts and reading saved account records. Real accounts, connection behavior, memory use, and sleep recovery have not been tested.
+- The unchanged upstream source compiled as an arm64 Debug baseline. The AccountBank changes also compiled as arm64 Debug. Local dependency preparation used a Rust build without ThinLTO because the bundled Rust toolchain failed to load proc macros with ThinLTO on this Mac. The local icon conversion used Pillow because `iconutil` rejected the upstream iconset.
+- The development build used Telegram Desktop's published test API credentials, which are unsuitable for users or release. The removed-feature UI work has not started.
+
 ## Product boundary
 
 - Keep 20–30 authorized accounts connected while the app runs and the Mac is awake. Show the selected account's chats and a compact status and unread summary for every account.

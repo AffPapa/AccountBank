@@ -26,7 +26,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "wallet/wallet_vault.h"
 #include "window/notifications_manager.h"
 #include "window/window_controller.h"
-#include "data/data_peer_values.h" // Data::AmPremiumValue.
 
 namespace Main {
 
@@ -327,7 +326,7 @@ void Domain::scheduleUpdateUnreadBadge() {
 
 not_null<Main::Account*> Domain::add(MTP::Environment environment) {
 	Expects(started());
-	Expects(_accounts.size() < kPremiumMaxAccounts);
+	Expects(_accounts.size() < kAccountBankMaxAccounts);
 
 	static const auto cloneConfig = [](const MTP::Config &config) {
 		return std::make_unique<MTP::Config>(config);
@@ -407,11 +406,6 @@ void Domain::watchSession(not_null<Account*> account) {
 			scheduleUpdateUnreadBadge();
 		}, session->lifetime());
 
-		Data::AmPremiumValue(
-			session
-		) | rpl::on_next([=] {
-			_lastMaxAccounts = maxAccounts();
-		}, session->lifetime());
 	}, account->lifetime());
 
 	account->sessionChanges(
@@ -612,13 +606,7 @@ void Domain::scheduleWriteAccounts() {
 }
 
 int Domain::maxAccounts() const {
-	const auto premiumCount = ranges::count_if(accounts(), [](
-			const Main::Domain::AccountWithIndex &d) {
-		return d.account->sessionExists()
-			&& (d.account->session().premium()
-				|| d.account->session().isTestMode());
-	});
-	return std::min(int(premiumCount) + kMaxAccounts, kPremiumMaxAccounts);
+	return kAccountBankMaxAccounts;
 }
 
 rpl::producer<int> Domain::maxAccountsChanges() const {
