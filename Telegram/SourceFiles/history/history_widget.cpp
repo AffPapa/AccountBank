@@ -6867,13 +6867,7 @@ bool HistoryWidget::isSearching() const {
 }
 
 bool HistoryWidget::showRecordButton() const {
-	return (_recordAvailability != Webrtc::RecordAvailability::None)
-		&& !_voiceRecordBar->isListenState()
-		&& !_voiceRecordBar->isRecordingByAnotherBar()
-		&& !hasSendableContent()
-		&& !_previewDrawPreview
-		&& (_replyTo || !readyToForward())
-		&& !_editMsgId;
+	return false;
 }
 
 bool HistoryWidget::showInlineBotCancel() const {

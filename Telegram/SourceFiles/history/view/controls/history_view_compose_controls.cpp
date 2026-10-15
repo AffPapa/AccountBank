@@ -3057,13 +3057,7 @@ void ComposeControls::orderControls() {
 }
 
 bool ComposeControls::showRecordButton() const {
-	return _features.recordMediaMessage
-		&& (_recordAvailability != Webrtc::RecordAvailability::None)
-		&& !_voiceRecordBar->isListenState()
-		&& !_voiceRecordBar->isRecordingByAnotherBar()
-		&& !hasSendableContent()
-		&& (replyingToMessage().replying() || !readyToForward())
-		&& !isEditingMessage();
+	return false;
 }
 
 bool ComposeControls::showEditStarsButton() const {
