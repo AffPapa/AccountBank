@@ -182,6 +182,8 @@ QJsonObject SerializeItem(not_null<HistoryItem*> item) {
 	object.insert(
 		u"from"_q,
 		item->from() ? QString::number(item->from()->id.value) : QString());
+	object.insert(u"from_name"_q, item->from() ? item->from()->name() : QString());
+	object.insert(u"peer_name"_q, peer->name());
 	object.insert(u"out"_q, item->out());
 	object.insert(u"text"_q, item->originalText().text);
 	if (const auto media = item->media()) {
@@ -255,21 +257,125 @@ void MessageArchive::logEditSnapshot(not_null<HistoryItem*> item) {
 }
 
 void MessageArchive::logDeleted(not_null<HistoryItem*> item) {
-	if (!item->isRegular()) {
-		return;
+	logDeletedBatch({ item });
+}
+
+void MessageArchive::logDeletedBatch(
+		const std::vector<not_null<HistoryItem*>> &items) {
+	for (const auto item : items) {
+		if (!item->isRegular()) {
+			continue;
+		}
+		auto object = SerializeItem(item);
+		enqueue(
+			u"delete"_q,
+			object.value(u"peer"_q).toString(),
+			object.value(u"msg"_q).toString(),
+			object,
+			item->allowsMediaDownloadControls()
+				&& (!_cloudChannelId || item->history()->peer->id
+					!= peerFromChannel(ChannelId(_cloudChannelId))));
 	}
-	auto object = SerializeItem(item);
-	enqueue(
-		u"delete"_q,
-		object.value(u"peer"_q).toString(),
-		object.value(u"msg"_q).toString(),
-		object,
-		item->allowsMediaDownloadControls()
-			&& (!_cloudChannelId || item->history()->peer->id
-				!= peerFromChannel(ChannelId(_cloudChannelId))));
 	if (!flush()) {
 		LOG(("Archive: deletion snapshot could not be saved."));
 	}
+}
+
+void MessageArchive::loadRecent(
+		const QString &kind,
+		Fn<void(RecentResult)> done) {
+	if (_broken || !ensureOpened()) {
+		done({});
+		return;
+	}
+	const auto path = _owner->session().local().accountFolder()
+		+ u"archive.ab"_q;
+	const auto key = _aesKey;
+	const auto session = &_owner->session();
+	crl::async([path, key, kind, session, done = std::move(done)]() mutable {
+		auto result = RecentResult();
+		auto *db = static_cast<sqlite3*>(nullptr);
+		auto ok = sqlite3_open_v2(
+				path.toUtf8().constData(),
+				&db,
+				SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX,
+				nullptr) == SQLITE_OK;
+		if (ok) {
+			sqlite3_busy_timeout(db, 5000);
+			// Sort only the small opaque keys and timestamps. Loading encrypted
+			// blobs in a second query keeps the temporary sort much smaller and
+			// avoids a schema write that could stall incoming archive events.
+			auto *order = static_cast<sqlite3_stmt*>(nullptr);
+			auto *record = static_cast<sqlite3_stmt*>(nullptr);
+			ok = sqlite3_prepare_v2(
+				db,
+				"SELECT key, ts FROM records ORDER BY ts DESC",
+				-1,
+				&order,
+				nullptr) == SQLITE_OK;
+			if (ok) {
+				ok = sqlite3_prepare_v2(
+					db,
+					"SELECT nonce, tag, data FROM records WHERE key = ?",
+					-1,
+					&record,
+					nullptr) == SQLITE_OK;
+			}
+			if (ok) {
+				auto step = int();
+				while (result.rows.size() < 50
+					&& (step = sqlite3_step(order)) == SQLITE_ROW) {
+					sqlite3_reset(record);
+					sqlite3_clear_bindings(record);
+					if (sqlite3_bind_blob(
+							record,
+							1,
+							sqlite3_column_blob(order, 0),
+							sqlite3_column_bytes(order, 0),
+							SQLITE_TRANSIENT) != SQLITE_OK
+						|| sqlite3_step(record) != SQLITE_ROW) {
+						ok = false;
+						break;
+					}
+					const auto nonce = QByteArray(
+						static_cast<const char*>(sqlite3_column_blob(record, 0)),
+						sqlite3_column_bytes(record, 0));
+					const auto tag = QByteArray(
+						static_cast<const char*>(sqlite3_column_blob(record, 1)),
+						sqlite3_column_bytes(record, 1));
+					const auto data = QByteArray(
+						static_cast<const char*>(sqlite3_column_blob(record, 2)),
+						sqlite3_column_bytes(record, 2));
+					const auto plain = DecryptRecord(key, nonce, tag, data);
+					const auto json = QJsonDocument::fromJson(plain);
+					if (plain.isEmpty() || !json.isObject()) {
+						ok = false;
+						break;
+					}
+					const auto object = json.object();
+					if (object.value(u"kind"_q).toString() == kind) {
+						result.rows.push_back(object);
+					}
+				}
+				if (ok && result.rows.size() < 50) {
+					ok = (step == SQLITE_DONE);
+				}
+			}
+			if (record) {
+				sqlite3_finalize(record);
+			}
+			if (order) {
+				sqlite3_finalize(order);
+			}
+		}
+		if (db) {
+			sqlite3_close_v2(db);
+		}
+		result.ok = ok;
+		crl::on_main(session, [done = std::move(done), result = std::move(result)]() mutable {
+			done(std::move(result));
+		});
+	});
 }
 
 void MessageArchive::logRead(not_null<History*> history, MsgId upTo) {
@@ -290,6 +396,28 @@ void MessageArchive::logPresence(not_null<PeerData*> peer) {
 	enqueue(u"presence"_q, object.value(u"peer"_q).toString(), QString(), object);
 }
 
+void MessageArchive::logSavedMedia(
+		const QString &kind,
+		const QString &path,
+		const QString &peer,
+		const QString &msg,
+		const QString &senderName,
+		const QString &peerName) {
+	if (kind != u"saved_ttl_photo"_q && kind != u"saved_story"_q) {
+		return;
+	}
+	auto object = QJsonObject();
+	object.insert(u"path"_q, path);
+	object.insert(u"peer"_q, peer);
+	object.insert(u"msg"_q, msg);
+	object.insert(u"from_name"_q, senderName);
+	object.insert(u"peer_name"_q, peerName);
+	enqueue(kind, peer, msg, object);
+	if (!flush()) {
+		LOG(("Archive: saved media reference could not be stored."));
+	}
+}
+
 void MessageArchive::enqueue(
 		const QString &kind,
 		const QString &peer,
@@ -305,10 +433,14 @@ void MessageArchive::enqueue(
 	auto full = object;
 	full.insert(u"kind"_q, kind);
 	full.insert(u"ts"_q, double(ts));
+	const auto savedMedia = (kind == u"saved_ttl_photo"_q
+		|| kind == u"saved_story"_q);
 	const auto material = kind + ':' + peer + ':' + msg
 		+ ((kind == u"message"_q)
 			? QString()
-			: (':' + QString::number(ts)
+			: savedMedia
+				? (':' + object.value(u"path"_q).toString())
+				: (':' + QString::number(ts)
 				+ ':' + QString::number(_eventCounter++)));
 	const auto encrypted = EncryptRecord(
 		_aesKey,
@@ -522,19 +654,21 @@ bool MessageArchive::flush() {
 	return true;
 }
 
-bool MessageArchive::exportTo(const QString &path) {
-	if (_broken || !flush() || !ensureOpened()) {
-		return false;
-	}
+namespace {
+
+bool ExportArchive(
+		sqlite3 *db,
+		const QByteArray &key,
+		const QString &path) {
 	auto *stmt = static_cast<sqlite3_stmt*>(nullptr);
 	if (sqlite3_prepare_v2(
-			_db,
+			db,
 			"SELECT nonce, tag, data FROM records ORDER BY ts",
 			-1,
 			&stmt,
 			nullptr) != SQLITE_OK) {
 		LOG(("Archive: export prepare failed: %1").arg(
-			QString::fromUtf8(sqlite3_errmsg(_db))));
+			QString::fromUtf8(sqlite3_errmsg(db))));
 		return false;
 	}
 	const auto guard = gsl::finally([&] {
@@ -570,7 +704,7 @@ bool MessageArchive::exportTo(const QString &path) {
 		const auto data = QByteArray(
 			static_cast<const char*>(sqlite3_column_blob(stmt, 2)),
 			sqlite3_column_bytes(stmt, 2));
-		const auto plain = DecryptRecord(_aesKey, nonce, tag, data);
+		const auto plain = DecryptRecord(key, nonce, tag, data);
 		if (plain.isEmpty()) {
 			LOG(("Archive: export stopped at a corrupted record."));
 			return false;
@@ -587,6 +721,49 @@ bool MessageArchive::exportTo(const QString &path) {
 	}
 	LOG(("Archive: exported %1 records.").arg(rows));
 	return true;
+}
+
+} // namespace
+
+bool MessageArchive::exportTo(const QString &path) {
+	return !_broken && flush() && ensureOpened()
+		&& ExportArchive(_db, _aesKey, path);
+}
+
+void MessageArchive::exportAsync(
+		const QString &path,
+		Fn<void(bool)> done) {
+	if (_exportActive || _broken || !flush() || !ensureOpened()) {
+		done(false);
+		return;
+	}
+	_exportActive = true;
+	const auto dbPath = _owner->session().local().accountFolder()
+		+ u"archive.ab"_q;
+	const auto key = _aesKey;
+	const auto session = &_owner->session();
+	const auto alive = _alive;
+	crl::async([this, alive, dbPath, key, path, session, done = std::move(done)]() mutable {
+		auto *db = static_cast<sqlite3*>(nullptr);
+		auto ok = sqlite3_open_v2(
+			dbPath.toUtf8().constData(),
+			&db,
+			SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX,
+			nullptr) == SQLITE_OK;
+		if (ok) {
+			sqlite3_busy_timeout(db, 5000);
+			ok = ExportArchive(db, key, path);
+		}
+		if (db) {
+			sqlite3_close_v2(db);
+		}
+		crl::on_main(session, [this, alive, done = std::move(done), ok]() mutable {
+			if (*alive) {
+				_exportActive = false;
+				done(ok);
+			}
+		});
+	});
 }
 
 void MessageArchive::loadCloudChannel() {

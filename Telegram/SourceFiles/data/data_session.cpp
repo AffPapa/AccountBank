@@ -3336,9 +3336,7 @@ void Session::processMessagesDeleted(
 		}
 	}
 	if (!toDestroy.empty()) {
-		for (const auto &item : toDestroy) {
-			_archive->logDeleted(item);
-		}
+		_archive->logDeletedBatch(toDestroy);
 		if (Core::App().settings().keepDeletedMessages()) {
 			for (const auto &item : toDestroy) {
 				item->markServerDeleted();
@@ -3368,9 +3366,7 @@ void Session::processNonChannelMessagesDeleted(const QVector<MTPint> &data) {
 		}
 	}
 	if (!toDestroy.empty()) {
-		for (const auto &item : toDestroy) {
-			_archive->logDeleted(item);
-		}
+		_archive->logDeletedBatch(toDestroy);
 		if (Core::App().settings().keepDeletedMessages()) {
 			for (const auto &item : toDestroy) {
 				item->markServerDeleted();

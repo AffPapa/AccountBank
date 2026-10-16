@@ -9191,6 +9191,22 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_mediaview_ttl_saved_to" = "Photo saved: {path}";
 
 "lng_accountbank_deleted_marker" = "deleted";
+"lng_accountbank_deleted_archive" = "Deleted messages";
+"lng_accountbank_edited_archive" = "Earlier versions";
+"lng_accountbank_ttl_archive" = "Saved one-time photos";
+"lng_accountbank_stories_archive" = "Saved stories";
+"lng_accountbank_archive_loading" = "Loading local archive…";
+"lng_accountbank_archive_empty" = "No archived messages in this section.";
+"lng_accountbank_archive_read_failed" = "The local archive could not be read. No files were changed.";
+"lng_accountbank_archive_recent" = "Latest 50 records. Time shown is when this device noticed the event; the interval is approximate.";
+"lng_accountbank_archive_saved_note" = "Latest 50 indexed saves. Use Show in Finder to open a file location.";
+"lng_accountbank_archive_reveal" = "Show in Finder";
+"lng_accountbank_archive_export_running" = "Archive export is already running.";
+"lng_accountbank_archive_missing" = "file missing";
+"lng_accountbank_archive_photo_metadata" = "photo details only";
+"lng_accountbank_archive_file_metadata" = "file details only";
+"lng_accountbank_archive_unknown" = "Unknown sender";
+"lng_accountbank_archive_no_text" = "[No text]";
 "lng_accountbank_export_archive" = "Export message archive";
 "lng_accountbank_archive_exported" = "Archive exported: {path}";
 "lng_accountbank_archive_failed" = "Archive export failed.";

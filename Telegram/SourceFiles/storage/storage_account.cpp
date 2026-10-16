@@ -236,13 +236,17 @@ StartResult Account::legacyStart(const QByteArray &passcode) {
 }
 
 bool Account::hasExistingStorageFiles() const {
+	return HasExistingStorageFiles(_dataName);
+}
+
+bool Account::HasExistingStorageFiles(const QString &dataName) {
 	const auto exists = [](const QString &base) {
 		return QFileInfo::exists(base + 's')
 			|| QFileInfo::exists(base + '0')
 			|| QFileInfo::exists(base + '1');
 	};
-	return exists(_basePath + u"map"_q)
-		|| exists(BaseGlobalPath() + ToFilePart(_dataNameKey));
+	const auto base = BaseGlobalPath() + ToFilePart(ComputeDataNameKey(dataName));
+	return exists(base + u"/map"_q) || exists(base);
 }
 
 std::optional<uint64> Account::authorizationUserId(

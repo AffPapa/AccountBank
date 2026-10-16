@@ -51,9 +51,11 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "tde2e/tde2e_api.h"
 #include "tde2e/tde2e_integration.h"
 #include "ui/boxes/confirm_box.h"
+#include "ui/layers/generic_box.h"
 #include "ui/chat/chat_theme.h"
 #include "ui/controls/swipe_handler.h"
 #include "ui/controls/userpic_button.h"
+#include "ui/widgets/buttons.h"
 #include "ui/effects/toggle_arrow.h"
 #include "ui/new_badges.h"
 #include "ui/painter.h"
@@ -65,6 +67,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/widgets/menu/menu_add_action_callback_factory.h"
 #include "ui/widgets/popup_menu.h"
 #include "ui/widgets/scroll_area.h"
+#include "ui/widgets/labels.h"
 #include "ui/widgets/shadow.h"
 #include "ui/wrap/slide_wrap.h"
 #include "wallet/wallet_panel.h"
@@ -74,6 +77,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/window_peer_menu.h"
 #include "window/window_session_controller.h"
 #include "styles/style_chat.h" // popupMenuExpandedSeparator
+#include "styles/style_boxes.h"
+#include "styles/style_layers.h"
 #include "styles/style_menu_icons.h"
 #include "styles/style_settings.h"
 #include "styles/style_wallet.h"
@@ -85,6 +90,171 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include <QtGui/QGuiApplication>
 #include <QtGui/QClipboard>
+#include <QDateTime>
+#include <QFileInfo>
+#include <QLocale>
+
+namespace {
+
+QString AccountBankElapsed(qint64 sent, qint64 observed) {
+	if (sent <= 0 || observed < sent) {
+		return u"?"_q;
+	}
+	const auto minutes = (observed - sent) / 60000;
+	if (minutes >= 1440) {
+		return tr::lng_days_tiny(tr::now, lt_count, int(minutes / 1440))
+			+ u" "_q
+			+ tr::lng_hours_tiny(tr::now, lt_count, int((minutes % 1440) / 60));
+	} else if (minutes >= 60) {
+		return tr::lng_hours_tiny(tr::now, lt_count, int(minutes / 60))
+			+ u" "_q
+			+ tr::lng_minutes_tiny(tr::now, lt_count, int(minutes % 60));
+	}
+	return tr::lng_minutes_tiny(tr::now, lt_count, int(minutes));
+}
+
+void ShowAccountBankArchive(
+		not_null<Window::SessionController*> controller,
+		const QString &kind) {
+	controller->show(Box([=](not_null<Ui::GenericBox*> box) {
+		const auto title = [](const QString &value) {
+			return value == u"delete"_q
+				? tr::lng_accountbank_deleted_archive(tr::now)
+				: value == u"edit"_q
+					? tr::lng_accountbank_edited_archive(tr::now)
+					: value == u"saved_ttl_photo"_q
+						? tr::lng_accountbank_ttl_archive(tr::now)
+						: tr::lng_accountbank_stories_archive(tr::now);
+		};
+		box->setTitle(rpl::single(title(kind)));
+		box->setWidth(st::boxWideWidth);
+		box->setMaxHeight(st::boxMaxListHeight);
+		for (const auto &category : {
+			u"delete"_q,
+			u"edit"_q,
+			u"saved_ttl_photo"_q,
+			u"saved_story"_q,
+		}) {
+			if (category == kind) {
+				continue;
+			}
+			const auto link = box->addRow(object_ptr<Ui::LinkButton>(
+				box,
+				title(category),
+				st::aboutVersionLink));
+			link->setClickedCallback([=] {
+				box->closeBox();
+				ShowAccountBankArchive(controller, category);
+			});
+		}
+		box->addSkip(st::boxLittleSkip);
+		const auto status = box->addRow(object_ptr<Ui::FlatLabel>(
+			box,
+			tr::lng_accountbank_archive_loading(tr::now),
+			st::aboutLabel));
+		box->addButton(tr::lng_close(), [=] { box->closeBox(); });
+		const auto weak = base::make_weak(box);
+		controller->session().data().archive().loadRecent(
+			kind,
+			[weak, status, kind](Data::MessageArchive::RecentResult result) {
+				if (!weak) {
+					return;
+				}
+				weak->setMaxHeight(st::boxMaxListHeight);
+				if (!result.ok) {
+					status->setText(tr::lng_accountbank_archive_read_failed(tr::now));
+					return;
+				}
+				if (result.rows.empty()) {
+					status->setText(tr::lng_accountbank_archive_empty(tr::now));
+					return;
+				}
+				status->setText(kind == u"delete"_q || kind == u"edit"_q
+					? tr::lng_accountbank_archive_recent(tr::now)
+					: tr::lng_accountbank_archive_saved_note(tr::now));
+				for (const auto &row : result.rows) {
+					if (kind == u"saved_ttl_photo"_q
+						|| kind == u"saved_story"_q) {
+						const auto path = row.value(u"path"_q).toString();
+						const auto when = QLocale().toString(
+							QDateTime::fromMSecsSinceEpoch(
+								qint64(row.value(u"ts"_q).toDouble())),
+							QLocale::ShortFormat);
+						const auto sender = row.value(u"from_name"_q).toString();
+						const auto peer = row.value(u"peer_name"_q).toString();
+						const auto names = sender.isEmpty()
+							? peer
+							: (peer.isEmpty() || sender == peer
+								? sender
+								: sender + u" · "_q + peer);
+						const auto exists = QFileInfo::exists(path);
+						const auto label = weak->addRow(
+							object_ptr<Ui::FlatLabel>(
+								weak.get(),
+								when + (names.isEmpty()
+									? QString()
+									: u" · "_q + names) + u"\n"_q + path
+									+ (exists
+										? QString()
+										: u" ["_q
+											+ tr::lng_accountbank_archive_missing(tr::now)
+											+ u"]"_q),
+								st::aboutLabel));
+						label->setSelectable(true);
+						if (exists) {
+							const auto reveal = weak->addRow(
+								object_ptr<Ui::LinkButton>(
+									weak.get(),
+									tr::lng_accountbank_archive_reveal(tr::now),
+									st::aboutVersionLink));
+							reveal->setClickedCallback([path] {
+								File::ShowInFolder(path);
+							});
+						}
+						continue;
+					}
+					const auto from = row.value(u"from_name"_q).toString();
+					const auto fromId = row.value(u"from"_q).toString();
+					const auto peer = row.value(u"peer_name"_q).toString();
+					const auto peerId = row.value(u"peer"_q).toString();
+					const auto observed = qint64(row.value(u"ts"_q).toDouble());
+					const auto sent = qint64(row.value(u"date"_q).toDouble()) * 1000;
+					const auto elapsed = AccountBankElapsed(sent, observed);
+					const auto when = QLocale().toString(
+						QDateTime::fromMSecsSinceEpoch(observed),
+						QLocale::ShortFormat);
+					const auto text = row.value(u"text"_q).toString().left(800);
+					const auto media = row.contains(u"photo"_q)
+						? u" ["_q
+							+ tr::lng_accountbank_archive_photo_metadata(tr::now)
+							+ u"]"_q
+						: row.contains(u"document"_q)
+							? u" ["_q
+								+ tr::lng_accountbank_archive_file_metadata(tr::now)
+								+ u"]"_q
+							: QString();
+					const auto summary = QString::fromUtf8("%1 · %2\n%3 · ~%4\n%5%6")
+						.arg(from.isEmpty()
+							? (fromId.isEmpty()
+								? tr::lng_accountbank_archive_unknown(tr::now)
+								: fromId)
+							: from)
+						.arg(peer.isEmpty() ? peerId : peer)
+						.arg(when)
+						.arg(elapsed)
+						.arg(text.isEmpty()
+							? tr::lng_accountbank_archive_no_text(tr::now)
+							: text)
+						.arg(media);
+					const auto label = weak->addRow(
+						object_ptr<Ui::FlatLabel>(weak.get(), summary, st::aboutLabel));
+					label->setSelectable(true);
+				}
+			});
+	}));
+}
+
+} // namespace
 
 namespace Window {
 class MainMenu::ToggleAccountsButton final : public Ui::AbstractButton {
@@ -569,22 +739,37 @@ void MainMenu::setupMenu() {
 		controller->showSettings();
 	});
 	addAction(
+		tr::lng_accountbank_deleted_archive(),
+		{ &st::menuIconSavedMessages }
+	)->setClickedCallback([=] {
+		ShowAccountBankArchive(controller, u"delete"_q);
+	});
+	addAction(
 		tr::lng_accountbank_export_archive(),
 		{ &st::menuIconExport }
 	)->setClickedCallback([=] {
 		auto &session = controller->session();
+		auto &archive = session.data().archive();
+		if (archive.exportInProgress()) {
+			controller->showToast(
+				tr::lng_accountbank_archive_export_running(tr::now));
+			return;
+		}
 		const auto path = File::DefaultDownloadPath(&session)
 			+ u"AccountBank archive %1.json"_q
 				.arg(session.userId().bare);
-		if (session.data().archive().exportTo(path)) {
-			controller->showToast(tr::lng_accountbank_archive_exported(
-				tr::now,
-				lt_path,
-				path));
-		} else {
-			controller->showToast(
-				tr::lng_accountbank_archive_failed(tr::now));
-		}
+		const auto weak = base::make_weak(controller);
+		archive.exportAsync(path, [weak, path](bool ok) {
+			if (!weak) {
+				return;
+			}
+			weak->showToast(ok
+				? tr::lng_accountbank_archive_exported(
+					tr::now,
+					lt_path,
+					path)
+				: tr::lng_accountbank_archive_failed(tr::now));
+		});
 	});
 	addAction(
 		tr::lng_accountbank_cloud_archive(),

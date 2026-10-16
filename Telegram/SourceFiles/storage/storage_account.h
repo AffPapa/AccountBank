@@ -86,6 +86,7 @@ public:
 		return _mapReadFailed;
 	}
 	[[nodiscard]] bool hasExistingStorageFiles() const;
+	[[nodiscard]] static bool HasExistingStorageFiles(const QString &dataName);
 	void startAdded(MTP::AuthKeyPtr localKey);
 	[[nodiscard]] int oldMapVersion() const {
 		return _oldMapVersion;

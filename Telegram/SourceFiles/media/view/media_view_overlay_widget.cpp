@@ -71,6 +71,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "media/streaming/media_streaming_player.h"
 #include "media/player/media_player_instance.h"
 #include "history/history.h"
+#include "history/history_item.h"
+#include "data/data_peer.h"
+#include "data/components/message_archive.h"
 #include "history/history_item_helpers.h"
 #include "history/view/media/history_view_media.h"
 #include "history/view/media/history_view_media_common.h"
@@ -3560,13 +3563,26 @@ void OverlayWidget::maybeAutoSaveTtlPhoto() {
 	QDir().mkpath(dir);
 	// WHY: the client deletes TTL photos after viewing, so a named copy is kept.
 	const auto toName = dir + u"/ttl_photo_%1.jpg"_q.arg(_photo->id);
+	const auto recordSaved = [&] {
+		if (_message) {
+			_session->data().archive().logSavedMedia(
+				u"saved_ttl_photo"_q,
+				toName,
+				QString::number(_message->history()->peer->id.value),
+				QString::number(_message->id.bare),
+				_message->from() ? _message->from()->name() : QString(),
+				_message->history()->peer->name());
+		}
+	};
 	if (QFileInfo(toName).size() > 0) {
+		recordSaved();
 		return;
 	} else if (!_photoMedia->saveToFile(toName)) {
 		QFile(toName).remove();
 		LOG(("TTL photo auto-save failed: %1").arg(toName));
 		return;
 	}
+	recordSaved();
 	showSaveMsgToastWith(
 		toName,
 		tr::lng_mediaview_ttl_saved_to(
@@ -3604,17 +3620,29 @@ void OverlayWidget::maybeAutoSaveShownStory() {
 	const auto prefix = dir + u"/story_%1_%2"_q
 		.arg(story->peer()->id.value)
 		.arg(story->id());
+	const auto recordSaved = [&](const QString &toName) {
+		_session->data().archive().logSavedMedia(
+			u"saved_story"_q,
+			toName,
+			QString::number(story->peer()->id.value),
+			QString::number(story->id()),
+			story->peer()->name(),
+			story->peer()->name());
+	};
 	if (photo) {
 		if (_photo != photo || !_photoMedia || !_photoMedia->loaded()) {
 			return;
 		}
 		const auto toName = prefix + u".jpg"_q;
 		if (QFileInfo(toName).size() > 0) {
+			recordSaved(toName);
 			return;
 		} else if (!_photoMedia->saveToFile(toName)) {
 			QFile(toName).remove();
 			LOG(("Story photo auto-save failed: %1").arg(toName));
+			return;
 		}
+		recordSaved(toName);
 	} else {
 		if (_document != document || document->loading()) {
 			return;
@@ -3625,6 +3653,7 @@ void OverlayWidget::maybeAutoSaveShownStory() {
 		}
 		const auto toName = prefix + u".%1"_q.arg(extension);
 		if (QFileInfo(toName).size() > 0) {
+			recordSaved(toName);
 			return;
 		}
 		const auto &location = document->location(true);
@@ -3632,10 +3661,15 @@ void OverlayWidget::maybeAutoSaveShownStory() {
 			QFile(toName).remove();
 			if (!QFile(location.name()).copy(toName)) {
 				LOG(("Story video auto-save failed: %1").arg(toName));
+			} else {
+				recordSaved(toName);
 			}
 			location.accessDisable();
 		} else {
 			document->save(_stories->fileOrigin(), toName);
+			if (QFileInfo(toName).size() > 0) {
+				recordSaved(toName);
+			}
 		}
 	}
 }

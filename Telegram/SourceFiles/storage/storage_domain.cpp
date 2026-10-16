@@ -344,9 +344,10 @@ StartResult Domain::start(PasscodeDerivation derived) {
 	// No domain key was found. Legacy storage used only slot zero; files in
 	// another slot imply a lost modern key and must not be orphaned by a fresh
 	// profile. Use the normal account name composition for each slot.
+	const auto baseName = QString(_dataName).remove('#');
 	for (auto index = 1; index != Main::Domain::kAccountBankMaxAccounts; ++index) {
-		const auto account = Main::Account(_owner, _dataName, index);
-		if (account.local().hasExistingStorageFiles()) {
+		const auto slotName = baseName + '#' + QString::number(index + 1);
+		if (Account::HasExistingStorageFiles(slotName)) {
 			LOG(("App Error: account files exist without a domain key."));
 			return StartResult::Failed;
 		}
