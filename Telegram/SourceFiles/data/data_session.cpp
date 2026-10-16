@@ -23,8 +23,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/image/image_location_factory.h" // Images::FromPhotoSize
 #include "ui/text/format_values.h" // Ui::FormatPhone
 #include "ui/color_int_conversion.h"
-#include "export/export_manager.h"
-#include "export/view/export_view_panel_controller.h"
 #include "mtproto/mtproto_config.h"
 #include "wallet/wallet_session.h"
 #include "wallet/wallet_transfer_messages.h"
@@ -50,6 +48,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/components/ephemeral_messages.h"
 #include "data/components/scheduled_messages.h"
 #include "data/components/sponsored_messages.h"
+#include "data/components/message_archive.h"
 #include "data/components/welcome_messages.h"
 #include "data/stickers/data_stickers.h"
 #include "data/notify/data_notify_settings.h"
@@ -353,6 +352,8 @@ Session::Session(not_null<Main::Session*> session)
 , _chatbots(std::make_unique<Chatbots>(this))
 , _businessInfo(std::make_unique<BusinessInfo>(this))
 , _shortcutMessages(std::make_unique<ShortcutMessages>(this)) {
+	_archive = std::make_unique<MessageArchive>(this);
+
 	_cache->open(_session->local().cacheKey());
 	_bigFileCache->open(_session->local().cacheBigFileKey());
 
@@ -1773,46 +1774,6 @@ Storage::Cache::Database &Session::cacheBigFile() {
 	return *_bigFileCache;
 }
 
-void Session::suggestStartExport(TimeId availableAt) {
-	_exportAvailableAt = availableAt;
-	suggestStartExport();
-}
-
-void Session::clearExportSuggestion() {
-	_exportAvailableAt = 0;
-	_exportUnlockLifetime.destroy();
-	if (_exportSuggestion) {
-		_exportSuggestion->closeBox();
-	}
-}
-
-void Session::suggestStartExport() {
-	if (_exportAvailableAt <= 0) {
-		return;
-	}
-
-	const auto now = base::unixtime::now();
-	const auto left = (_exportAvailableAt <= now)
-		? 0
-		: (_exportAvailableAt - now);
-	if (left) {
-		base::call_delayed(
-			std::min(left + 5, 3600) * crl::time(1000),
-			_session,
-			[=] { suggestStartExport(); });
-	} else if (Core::App().passcodeLocked()) {
-		using namespace rpl::mappers;
-		_exportUnlockLifetime = Core::App().passcodeLockChanges(
-		) | rpl::filter(!_1) | rpl::take(1) | rpl::on_next([=] {
-			crl::on_main(_session, [=] { suggestStartExport(); });
-		});
-	} else if (Core::App().exportManager().inProgress()) {
-		Export::View::ClearSuggestStart(&session());
-	} else {
-		_exportSuggestion = Export::View::SuggestStart(&session());
-	}
-}
-
 const Passport::SavedCredentials *Session::passportCredentials() const {
 	return _passportCredentials ? &_passportCredentials->first : nullptr;
 }
@@ -2085,6 +2046,11 @@ void Session::notifyNewItemAdded(not_null<HistoryItem*> item) {
 
 rpl::producer<not_null<HistoryItem*>> Session::newItemAdded() const {
 	return _newItemAdded.events();
+}
+
+MessageArchive &Session::archive() {
+	Expects(_archive != nullptr);
+	return *_archive;
 }
 
 void Session::notifyGiftUpdate(GiftUpdate &&update) {
@@ -3080,6 +3046,7 @@ void Session::updateEditedMessage(const MTPMessage &data) {
 	if (existing->isLocalUpdateMedia() && data.type() == mtpc_message) {
 		updateExistingMessage(data.c_message());
 	}
+	_archive->logEditSnapshot(existing);
 	data.match([](const MTPDmessageEmpty &) {
 	}, [&](const MTPDmessageService &data) {
 		existing->applyEdition(data);
@@ -3369,9 +3336,18 @@ void Session::processMessagesDeleted(
 		}
 	}
 	if (!toDestroy.empty()) {
-		notifyItemsAboutToBeDestroyed(toDestroy);
 		for (const auto &item : toDestroy) {
-			item->destroy();
+			_archive->logDeleted(item);
+		}
+		if (Core::App().settings().keepDeletedMessages()) {
+			for (const auto &item : toDestroy) {
+				item->markServerDeleted();
+			}
+		} else {
+			notifyItemsAboutToBeDestroyed(toDestroy);
+			for (const auto &item : toDestroy) {
+				item->destroy();
+			}
 		}
 	}
 	for (const auto &history : historiesToCheck) {
@@ -3392,9 +3368,18 @@ void Session::processNonChannelMessagesDeleted(const QVector<MTPint> &data) {
 		}
 	}
 	if (!toDestroy.empty()) {
-		notifyItemsAboutToBeDestroyed(toDestroy);
 		for (const auto &item : toDestroy) {
-			item->destroy();
+			_archive->logDeleted(item);
+		}
+		if (Core::App().settings().keepDeletedMessages()) {
+			for (const auto &item : toDestroy) {
+				item->markServerDeleted();
+			}
+		} else {
+			notifyItemsAboutToBeDestroyed(toDestroy);
+			for (const auto &item : toDestroy) {
+				item->destroy();
+			}
 		}
 	}
 	for (const auto &history : historiesToCheck) {

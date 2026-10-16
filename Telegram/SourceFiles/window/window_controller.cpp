@@ -10,7 +10,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "api/api_updates.h"
 #include "core/application.h"
 #include "core/click_handler_types.h"
-#include "export/export_manager.h"
 #include "ui/platform/ui_platform_window.h"
 #include "platform/platform_window_title.h"
 #include "main/main_account.h"
@@ -595,11 +594,13 @@ QString LogoutConfirmationText(Main::Account *account) {
 }
 
 void Controller::showLogoutConfirmation() {
-	const auto account = Core::App().passcodeLocked()
-		? nullptr
-		: sessionController()
-		? &sessionController()->session().account()
-		: nullptr;
+	const auto controller = sessionController();
+	if (Core::App().passcodeLocked() || !controller) {
+		// A null account here resets the local key or logs out every account.
+		showToast(u"Open an unlocked account before logging out."_q);
+		return;
+	}
+	const auto account = &controller->session().account();
 	const auto weak = base::make_weak(account);
 	const auto callback = [=](Fn<void()> close) {
 		if (!account || weak) {

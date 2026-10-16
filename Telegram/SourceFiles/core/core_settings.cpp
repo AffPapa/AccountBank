@@ -1163,7 +1163,9 @@ void Settings::addFromSerialized(const QByteArray &serialized) {
 	_dictionariesEnabled = std::move(dictionariesEnabled);
 	_autoDownloadDictionaries = (autoDownloadDictionaries == 1);
 	_mainMenuAccountsShown = (mainMenuAccountsShown == 1);
-	_tabbedSelectorSectionEnabled = (tabbedSelectorSectionEnabled == 1);
+	// Consume the saved field for compatibility, but never restore the
+	// removed sticker / GIF selector in AccountBank.
+	_tabbedSelectorSectionEnabled = false;
 	auto uncheckedColumn = static_cast<Window::Column>(floatPlayerColumn);
 	switch (uncheckedColumn) {
 	case Window::Column::First:
@@ -1386,10 +1388,10 @@ QString Settings::getSoundPath(const QString &key) const {
 }
 
 void Settings::setTabbedSelectorSectionEnabled(bool enabled) {
-	_tabbedSelectorSectionEnabled = enabled;
-	if (enabled) {
-		setThirdSectionInfoEnabled(false);
-	}
+	// AccountBank has no sticker / GIF selector. Ignore a saved value from
+	// an older profile so it cannot reopen as a third column after upgrade.
+	(void)enabled;
+	_tabbedSelectorSectionEnabled = false;
 	setTabbedReplacedWithInfo(false);
 }
 

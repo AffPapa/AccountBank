@@ -98,10 +98,6 @@ namespace Stickers {
 class EmojiImageLoader;
 } // namespace Stickers
 
-namespace Export {
-class Manager;
-} // namespace Export
-
 namespace Calls {
 class Instance;
 } // namespace Calls
@@ -251,10 +247,6 @@ public:
 	}
 	[[nodiscard]] Main::Account &activeAccount() const;
 	[[nodiscard]] bool someSessionExists() const;
-	[[nodiscard]] Export::Manager &exportManager() const {
-		return *_exportManager;
-	}
-	[[nodiscard]] bool exportPreventsQuit();
 
 	// Main::Session component.
 	Main::Session *maybePrimarySession() const;
@@ -442,7 +434,6 @@ private:
 	std::unique_ptr<MediaControlsManager> _mediaControlsManager;
 	const std::unique_ptr<Data::DownloadManager> _downloadManager;
 	const std::unique_ptr<Main::Domain> _domain;
-	const std::unique_ptr<Export::Manager> _exportManager;
 	const std::unique_ptr<Calls::Instance> _calls;
 	const std::unique_ptr<Iv::Instance> _iv;
 	base::flat_map<

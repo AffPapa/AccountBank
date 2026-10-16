@@ -16,12 +16,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/history_item.h"
 #include "history/view/history_view_element.h"
 #include "history/view/history_view_cursor_state.h"
-#include "core/application.h"
 #include "core/click_handler_types.h"
-#include "calls/calls_instance.h"
 #include "data/data_media_types.h"
-#include "data/data_user.h"
-#include "main/main_session.h"
 #include "window/window_session_controller.h"
 #include "styles/style_chat.h"
 
@@ -62,23 +58,19 @@ Call::Call(
 }
 
 QSize Call::countOptimalSize() {
-	const auto user = _parent->history()->peer->asUser();
 	const auto conference = _conference;
-	const auto video = _video;
 	const auto contextId = _parent->data()->fullId();
 	const auto id = _parent->data()->id;
-	_link = std::make_shared<LambdaClickHandler>([=](ClickContext context) {
-		if (conference) {
+	if (conference) {
+		_link = std::make_shared<LambdaClickHandler>([=](ClickContext context) {
 			const auto my = context.other.value<ClickHandlerContext>();
 			const auto weak = my.sessionWindow;
 			if (const auto strong = weak.get()) {
 				QSize();
 				strong->resolveConferenceCall(id, contextId);
 			}
-		} else if (user) {
-			Core::App().calls().startOutgoingCall(user, { video });
-		}
-	});
+		});
+	}
 	auto maxWidth = st::historyCallWidth;
 	auto minHeight = st::historyCallHeight;
 	if (!isBubbleTop()) {

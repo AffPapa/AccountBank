@@ -23,16 +23,42 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/wrap/wrap.h"
 #include "storage/localstorage.h"
 #include "settings/settings_common.h"
-#include "export/view/export_view_settings.h"
 #include "styles/style_layers.h"
 #include "styles/style_boxes.h"
 #include "styles/style_settings.h"
 
 namespace {
 
+constexpr auto kSizeValueCount = 100;
 constexpr auto kMegabyte = 1024 * 1024;
 constexpr auto kDefaultDownloadLimit = 10 * kMegabyte;
 constexpr auto kDefaultAutoPlayLimit = 50 * kMegabyte;
+
+int64 SizeLimitByIndex(int index) {
+	Expects(index >= 0 && index < kSizeValueCount);
+
+	index += 1;
+	const auto megabytes = [&] {
+		if (index <= 10) {
+			return index;
+		} else if (index <= 30) {
+			return 10 + (index - 10) * 2;
+		} else if (index <= 40) {
+			return 50 + (index - 30) * 5;
+		} else if (index <= 60) {
+			return 100 + (index - 40) * 10;
+		} else if (index <= 70) {
+			return 300 + (index - 60) * 20;
+		} else if (index <= 80) {
+			return 500 + (index - 70) * 50;
+		} else if (index <= 90) {
+			return 1000 + (index - 80) * 100;
+		} else {
+			return 2000 + (index - 90) * 200;
+		}
+	}();
+	return int64(megabytes) * kMegabyte;
+}
 
 using Type = Data::AutoDownload::Type;
 using Source = Data::AutoDownload::Source;
@@ -165,8 +191,8 @@ not_null<int64*> AddSizeLimitSlider(
 		st::autoDownloadLimitPadding);
 	slider->resize(st::autoDownloadLimitSlider.seekSize);
 	slider->setPseudoDiscrete(
-		Export::View::kSizeValueCount,
-		Export::View::SizeLimitByIndex,
+		kSizeValueCount,
+		SizeLimitByIndex,
 		*result,
 		[=](int64 value) {
 			*result = value;

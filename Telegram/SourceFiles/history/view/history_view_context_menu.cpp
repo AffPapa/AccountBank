@@ -73,7 +73,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "boxes/delete_messages_box.h"
 #include "boxes/moderate_messages_box.h"
 #include "boxes/report_messages_box.h"
-#include "boxes/star_gift_box.h"
 #include "boxes/sticker_set_box.h"
 #include "boxes/stickers_box.h"
 #include "boxes/translate_box.h"
@@ -1403,6 +1402,19 @@ void AddMessageActions(
 		const ContextMenuRequest &request,
 		not_null<ListWidget*> list) {
 	AddPostLinkAction(menu, request);
+	const auto item = request.item;
+	if (item
+		&& request.selectedItems.empty()
+		&& request.pointState != PointState::Outside
+		&& !IsAnchoredEphemeral(item)
+		&& !item->isEphemeral()
+		&& !(item->media() && item->media()->ttlSeconds() > 0)
+		&& IsServerMsgId(item->fullId().msg)) {
+		const auto id = item->fullId().msg.bare;
+		menu->addAction(tr::lng_context_copy_message_id(tr::now), [=] {
+			QGuiApplication::clipboard()->setText(QString::number(id));
+		}, &st::menuIconCopy);
+	}
 	AddForwardAction(menu, request, list);
 	AddOfferAction(menu, request, list);
 	AddSendNowAction(menu, request, list);
@@ -1862,8 +1874,6 @@ void FillContextMenuItems(
 			result->addAction(tr::lng_profile_copy_phone(tr::now), [=] {
 				QGuiApplication::clipboard()->setText(phone);
 			}, &st::menuIconCopy);
-		} else if (itemMedia && itemMedia->gift()) {
-			AddGiftMessageAction(result, view->data(), list->controller());
 		}
 		if (view->data()->isRegular()
 			&& view->data()->Has<HistoryServiceGramTransfer>()) {
@@ -2313,43 +2323,6 @@ void AttachPollOptionTabs(
 			reposition();
 		}
 	}, tabs->lifetime());
-}
-
-void AddGiftMessageAction(
-		not_null<Ui::PopupMenu*> menu,
-		not_null<HistoryItem*> item,
-		not_null<Window::SessionController*> controller) {
-	const auto media = item->media();
-	const auto gift = media ? media->gift() : nullptr;
-	if (!gift || gift->type == Data::GiftType::BirthdaySuggest) {
-		return;
-	}
-	const auto peer = item->history()->peer;
-	const auto user = peer->asUser();
-	const auto isGift = gift->slug.isEmpty() || !gift->channel;
-	if (!isGift
-		|| (user
-			&& (user->isInaccessible() || user->isNotificationsUser()))) {
-		return;
-	}
-	const auto starGiftUpgrade = gift->upgrade
-		&& (gift->type == Data::GiftType::StarGift);
-	const auto out = item->out();
-	const auto outgoingGift = starGiftUpgrade ? !out : out;
-	if (!outgoingGift
-		&& (gift->type == Data::GiftType::ChatTheme
-			|| gift->type == Data::GiftType::GiftOffer
-			|| !Ui::CanSendStarGiftTo(peer))) {
-		return;
-	}
-	menu->addAction(
-		(outgoingGift
-			? tr::lng_context_gift_send(tr::now)
-			: tr::lng_gift_send_title(tr::now)),
-		crl::guard(controller, [=] {
-			Ui::ShowStarGiftBox(controller, peer);
-		}),
-		&st::menuIconGiftPremium);
 }
 
 void AddPollActions(

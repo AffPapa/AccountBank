@@ -87,10 +87,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "calls/calls_instance.h"
 #include "calls/calls_top_bar.h"
 #include "calls/group/calls_group_call.h"
-#include "export/export_settings.h"
-#include "export/export_manager.h"
-#include "export/view/export_view_top_bar.h"
-#include "export/view/export_view_panel_controller.h"
 #include "main/main_session.h"
 #include "main/main_session_settings.h"
 #include "main/main_app_config.h"
@@ -313,14 +309,6 @@ MainWidget::MainWidget(
 	) | rpl::on_next([=](FullMsgId itemId) {
 		floatPlayerClosed(itemId);
 	}, lifetime());
-
-	Core::App().exportManager().currentView(
-	) | rpl::on_next([=](Export::View::PanelController *view) {
-		setCurrentExportView(view);
-	}, lifetime());
-	if (_exportTopBar) {
-		_exportTopBar->finishAnimating();
-	}
 
 	Media::Player::instance()->closePlayerRequests(
 	) | rpl::on_next([=] {
@@ -1104,81 +1092,6 @@ void MainWidget::callTopBarHeightUpdated(int callTopBarHeight) {
 		_contentScrollAddToY += callTopBarHeight - _callTopBarHeight;
 		_callTopBarHeight = callTopBarHeight;
 		updateControlsGeometry();
-	}
-}
-
-void MainWidget::setCurrentExportView(Export::View::PanelController *view) {
-	_currentExportView = view;
-	if (_currentExportView) {
-		_currentExportView->progressState(
-		) | rpl::on_next([=](Export::View::Content &&data) {
-			if (!data.rows.empty()
-				&& data.rows[0].id == Export::View::Content::kDoneId) {
-				LOG(("Export Info: Destroy top bar by Done."));
-				destroyExportTopBar();
-			} else if (!_exportTopBar) {
-				LOG(("Export Info: Create top bar by State."));
-				createExportTopBar(std::move(data));
-			} else {
-				_exportTopBar->entity()->updateData(std::move(data));
-			}
-		}, _exportViewLifetime);
-	} else {
-		_exportViewLifetime.destroy();
-
-		LOG(("Export Info: Destroy top bar by controller removal."));
-		destroyExportTopBar();
-	}
-}
-
-void MainWidget::createExportTopBar(Export::View::Content &&data) {
-	_exportTopBar.create(
-		this,
-		object_ptr<Export::View::TopBar>(this, std::move(data)),
-		_controller->adaptive().oneColumnValue());
-	_exportTopBar->entity()->clicks(
-	) | rpl::on_next([=] {
-		if (_currentExportView) {
-			_currentExportView->activatePanel();
-		}
-	}, _exportTopBar->lifetime());
-	orderWidgets();
-	if (_showAnimation) {
-		_exportTopBar->show(anim::type::instant);
-		_exportTopBar->setVisible(false);
-	} else {
-		_exportTopBar->hide(anim::type::instant);
-		_exportTopBar->show(anim::type::normal);
-		_exportTopBarHeight = _contentScrollAddToY = _exportTopBar->contentHeight();
-		updateControlsGeometry();
-	}
-	rpl::merge(
-		_exportTopBar->heightValue() | rpl::map_to(true),
-		_exportTopBar->shownValue()
-	) | rpl::on_next([=] {
-		exportTopBarHeightUpdated();
-	}, _exportTopBar->lifetime());
-}
-
-void MainWidget::destroyExportTopBar() {
-	if (_exportTopBar) {
-		_exportTopBar->hide(anim::type::normal);
-	}
-}
-
-void MainWidget::exportTopBarHeightUpdated() {
-	if (!_exportTopBar) {
-		// Player could be already "destroyDelayed", but still handle events.
-		return;
-	}
-	const auto exportTopBarHeight = _exportTopBar->contentHeight();
-	if (exportTopBarHeight != _exportTopBarHeight) {
-		_contentScrollAddToY += exportTopBarHeight - _exportTopBarHeight;
-		_exportTopBarHeight = exportTopBarHeight;
-		updateControlsGeometry();
-	}
-	if (!_exportTopBarHeight && _exportTopBar->isHidden()) {
-		_exportTopBar.destroyDelayed();
 	}
 }
 
@@ -2413,9 +2326,6 @@ void MainWidget::orderWidgets() {
 	if (_player) {
 		_player->raise();
 	}
-	if (_exportTopBar) {
-		_exportTopBar->raise();
-	}
 	if (_callTopBar) {
 		_callTopBar->raise();
 	}
@@ -2552,7 +2462,7 @@ void MainWidget::paintEvent(QPaintEvent *e) {
 }
 
 int MainWidget::getMainSectionTop() const {
-	return _callTopBarHeight + _exportTopBarHeight + _playerHeight;
+	return _callTopBarHeight + _playerHeight;
 }
 
 int MainWidget::getThirdSectionTop() const {
@@ -2724,13 +2634,9 @@ void MainWidget::updateControlsGeometry() {
 			_callTopBar->resizeToWidth(dialogsWidth);
 			_callTopBar->moveToLeft(0, 0);
 		}
-		if (_exportTopBar) {
-			_exportTopBar->resizeToWidth(dialogsWidth);
-			_exportTopBar->moveToLeft(0, _callTopBarHeight);
-		}
 		if (_player) {
 			_player->resizeToWidth(dialogsWidth);
-			_player->moveToLeft(0, _callTopBarHeight + _exportTopBarHeight);
+			_player->moveToLeft(0, _callTopBarHeight);
 		}
 		const auto mainSectionGeometry = QRect(
 			0,
@@ -2785,15 +2691,11 @@ void MainWidget::updateControlsGeometry() {
 			_callTopBar->resizeToWidth(mainSectionWidth);
 			_callTopBar->moveToLeft(dialogsWidth, 0);
 		}
-		if (_exportTopBar) {
-			_exportTopBar->resizeToWidth(mainSectionWidth);
-			_exportTopBar->moveToLeft(dialogsWidth, _callTopBarHeight);
-		}
 		if (_player) {
 			_player->resizeToWidth(mainSectionWidth);
 			_player->moveToLeft(
 				dialogsWidth,
-				_callTopBarHeight + _exportTopBarHeight);
+				_callTopBarHeight);
 		}
 		_history->setGeometryWithTopMoved(QRect(
 			dialogsWidth,

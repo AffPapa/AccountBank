@@ -8,7 +8,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/view/media/history_view_sticker.h"
 
 #include "base/options.h"
-#include "boxes/sticker_set_box.h"
 #include "history/history.h"
 #include "history/history_item_components.h"
 #include "history/history_item.h"
@@ -23,11 +22,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/text/custom_emoji_instance.h"
 #include "ui/emoji_config.h"
 #include "ui/painter.h"
-#include "ui/power_saving.h"
 #include "core/application.h"
 #include "core/core_settings.h"
 #include "core/click_handler_types.h"
-#include "window/window_session_controller.h"
 #include "data/data_session.h"
 #include "data/data_document.h"
 #include "data/data_document_media.h"
@@ -95,32 +92,13 @@ Sticker::Sticker(
 , _data(data)
 , _replacements(replacements)
 , _cachingTag(ChatHelpers::StickerLottieSize::MessageHistory)
-, _skipPremiumEffect(skipPremiumEffect)
 , _sensitiveBlurred(parent->data()->isMediaSensitive()) {
+	Q_UNUSED(replacing);
+	Q_UNUSED(skipPremiumEffect);
 	if ((_dataMedia = _data->activeMediaView())) {
 		dataMediaCreated();
 	} else {
 		_data->loadThumbnail(parent->data()->fullId());
-		if (hasPremiumEffect()) {
-			_data->loadVideoThumbnail(parent->data()->fullId());
-		}
-	}
-	if (const auto media = replacing ? replacing->media() : nullptr) {
-		_player = media->stickerTakePlayer(_data, _replacements);
-		if (_player) {
-			if (hasPremiumEffect() && !_premiumEffectPlayed) {
-				_premiumEffectPlayed = true;
-				if (On(PowerSaving::kStickersChat)
-					&& !_premiumEffectSkipped) {
-					_premiumEffectSkipped = true;
-				} else {
-					_parent->delegate()->elementStartPremium(
-						_parent,
-						replacing);
-				}
-			}
-			playerCreated();
-		}
 	}
 }
 
@@ -134,10 +112,6 @@ Sticker::~Sticker() {
 			_parent->checkHeavyPart();
 		}
 	}
-}
-
-bool Sticker::hasPremiumEffect() const {
-	return !_skipPremiumEffect && _data->isPremiumSticker();
 }
 
 bool Sticker::customEmojiPart() const {
@@ -188,10 +162,7 @@ bool Sticker::readyToDrawAnimationFrame() {
 
 	ensureDataMediaCreated();
 	_dataMedia->checkStickerLarge();
-	const auto loaded = _dataMedia->loaded();
-	const auto waitingForPremium = hasPremiumEffect()
-		&& _dataMedia->videoThumbnailContent().isEmpty();
-	if (!_player && loaded && !waitingForPremium && sticker->isAnimated()) {
+	if (!_player && _dataMedia->loaded() && sticker->isAnimated()) {
 		setupPlayer();
 	}
 	return ready();
@@ -310,7 +281,6 @@ void Sticker::stickerClearLoopPlayed() {
 	if (!_playingOnce) {
 		_oncePlayed = false;
 	}
-	_premiumEffectSkipped = false;
 }
 
 void Sticker::paintAnimationFrame(
@@ -322,11 +292,7 @@ void Sticker::paintAnimationFrame(
 		: (context.selected() && !_nextLastFrame)
 		? context.st->msgStickerOverlay()->c
 		: QColor(0, 0, 0, 0);
-	const auto powerSavingFlag = emojiSticker()
-		? PowerSaving::kEmojiChat
-		: PowerSaving::kStickersChat;
-	const auto paused = context.paused
-		|| (_diceIndex < 0 && On(powerSavingFlag));
+	const auto paused = context.paused || (_diceIndex < 0);
 	const auto frame = _player
 		? _player->frame(
 			_size,
@@ -384,7 +350,6 @@ void Sticker::paintAnimationFrame(
 		_oncePlayed = true;
 		_parent->delegate()->elementStartStickerLoop(_parent);
 	}
-	checkPremiumEffectStart();
 }
 
 bool Sticker::paintPixmap(
@@ -488,20 +453,7 @@ QPixmap Sticker::paintedPixmap(const PaintContext &context) const {
 }
 
 bool Sticker::mirrorHorizontal() const {
-	if (!hasPremiumEffect()) {
-		return false;
-	}
-	const auto rightAligned = _parent->hasRightLayout();
-	return !rightAligned;
-}
-
-ClickHandlerPtr Sticker::ShowSetHandler(not_null<DocumentData*> document) {
-	return std::make_shared<LambdaClickHandler>([=](ClickContext context) {
-		const auto my = context.other.value<ClickHandlerContext>();
-		if (const auto window = my.sessionWindow.get()) {
-			StickerSetBox::Show(window->uiShow(), document);
-		}
-	});
+	return false;
 }
 
 void Sticker::refreshLink() {
@@ -511,24 +463,6 @@ void Sticker::refreshLink() {
 	const auto sticker = _data->sticker();
 	if (_sensitiveBlurred) {
 		_link = MakeSensitiveMediaLink(nullptr, _parent->data());
-	} else if (emojiSticker()) {
-		const auto weak = base::make_weak(this);
-		_link = std::make_shared<LambdaClickHandler>([weak] {
-			if (const auto that = weak.get()) {
-				that->emojiStickerClicked();
-			}
-		});
-	} else if (sticker && sticker->set) {
-		if (hasPremiumEffect()) {
-			const auto weak = base::make_weak(this);
-			_link = std::make_shared<LambdaClickHandler>([weak] {
-				if (const auto that = weak.get()) {
-					that->premiumStickerClicked();
-				}
-			});
-		} else {
-			_link = ShowSetHandler(_data);
-		}
 	} else if (sticker
 		&& (_data->dimensions.width() > kStickerSideSize
 			|| _data->dimensions.height() > kStickerSideSize)
@@ -546,23 +480,6 @@ void Sticker::refreshLink() {
 	}
 }
 
-void Sticker::emojiStickerClicked() {
-	if (_player) {
-		_parent->delegate()->elementStartInteraction(_parent);
-	}
-	_oncePlayed = false;
-	_parent->history()->owner().requestViewRepaint(_parent);
-}
-
-void Sticker::premiumStickerClicked() {
-	_premiumEffectPlayed = false;
-
-	// Remove when we start playing sticker itself on click.
-	_premiumEffectSkipped = false;
-
-	_parent->history()->owner().requestViewRepaint(_parent);
-}
-
 void Sticker::ensureDataMediaCreated() const {
 	if (_dataMedia) {
 		return;
@@ -577,9 +494,6 @@ void Sticker::dataMediaCreated() const {
 	_dataMedia->goodThumbnailWanted();
 	if (_dataMedia->thumbnailPath().isEmpty()) {
 		_dataMedia->thumbnailWanted(_parent->data()->fullId());
-	}
-	if (hasPremiumEffect()) {
-		_data->loadVideoThumbnail(_parent->data()->fullId());
 	}
 	_parent->history()->owner().registerHeavyViewPart(_parent);
 }
@@ -634,20 +548,7 @@ void Sticker::setupPlayer() {
 			countOptimalSize());
 	}
 
-	checkPremiumEffectStart();
 	playerCreated();
-}
-
-void Sticker::checkPremiumEffectStart() {
-	if (!_premiumEffectPlayed && hasPremiumEffect()) {
-		_premiumEffectPlayed = true;
-		if (On(PowerSaving::kStickersChat)
-			&& !_premiumEffectSkipped) {
-			_premiumEffectSkipped = true;
-		} else {
-			_parent->delegate()->elementStartPremium(_parent, nullptr);
-		}
-	}
 }
 
 void Sticker::playerCreated() {
@@ -675,9 +576,6 @@ void Sticker::unloadPlayer() {
 		_oncePlayed = false;
 	}
 	_player = nullptr;
-	if (hasPremiumEffect()) {
-		_parent->delegate()->elementCancelPremium(_parent);
-	}
 	_parent->checkHeavyPart();
 }
 

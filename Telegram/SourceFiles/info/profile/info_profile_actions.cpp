@@ -28,7 +28,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "boxes/peers/verify_peers_box.h"
 #include "boxes/report_messages_box.h"
 #include "boxes/share_box.h"
-#include "boxes/star_gift_box.h"
 #include "boxes/translate_box.h"
 #include "core/application.h"
 #include "core/click_handler_types.h"
@@ -144,6 +143,7 @@ base::options::toggle ShowPeerIdBelowAbout({
 	.name = "Show Peer IDs in Profile",
 	.description = "Show peer IDs from API below their Bio / Description."
 		" Add contact IDs to exported data.",
+	.defaultValue = true,
 });
 
 base::options::toggle ShowChannelJoinedBelowAbout({
@@ -231,9 +231,12 @@ base::options::toggle ShowChannelJoinedBelowAbout({
 [[nodiscard]] rpl::producer<TextWithEntities> AboutWithAdvancedValue(
 		not_null<PeerData*> peer) {
 
-	return AboutValue(
-		peer
-	) | rpl::map([=](TextWithEntities &&value) {
+	return rpl::combine(
+		AboutValue(peer),
+		peer->session().changes().peerFlagsValue(
+			peer,
+			Data::PeerUpdate::Flag::UnavailableReason)
+	) | rpl::map([=](TextWithEntities &&value, Data::PeerUpdate) {
 		if (ShowPeerIdBelowAbout.value()) {
 			using namespace Ui::Text;
 			if (!value.empty()) {
@@ -268,6 +271,14 @@ base::options::toggle ShowChannelJoinedBelowAbout({
 						"internal:~join_date~:show:" + QString::number(raw)));
 				}
 			}
+		}
+		const auto reason = peer->computeUnavailableReason();
+		if (!reason.isEmpty()) {
+			if (!value.empty()) {
+				value.append("\n\n");
+			}
+			value.append(tr::lng_profile_restriction_reason(tr::now));
+			value.append(u": "_q + reason);
 		}
 		return std::move(value);
 	});
@@ -913,7 +924,6 @@ void DeleteContactNote(
 
 [[nodiscard]] object_ptr<Ui::SlideWrap<>> CreateBirthday(
 		not_null<QWidget*> parent,
-		not_null<Window::SessionController*> controller,
 		not_null<UserData*> user) {
 	using namespace Data;
 
@@ -927,6 +937,7 @@ void DeleteContactNote(
 	result->setDuration(st::infoSlideDuration);
 	const auto button = result->entity();
 	button->setTextTransform(Ui::RoundButtonTextTransform::ToUpper);
+	button->setAttribute(Qt::WA_TransparentForMouseEvents);
 
 	auto outer = Ui::CreateChild<Ui::SlideWrap<Ui::VerticalLayout>>(
 		button,
@@ -941,33 +952,6 @@ void DeleteContactNote(
 
 	auto label = BirthdayLabelText(rpl::duplicate(birthday));
 	auto text = BirthdayValueMarkedText(user, rpl::duplicate(birthday));
-
-	const auto giftIcon = Ui::CreateChild<Ui::RpWidget>(layout);
-	giftIcon->resize(st::birthdayTodayIcon.size());
-	layout->sizeValue() | rpl::on_next([=](QSize size) {
-		giftIcon->moveToRight(
-			0,
-			(size.height() - giftIcon->height()) / 2,
-			size.width());
-	}, giftIcon->lifetime());
-	giftIcon->paintRequest() | rpl::on_next([=] {
-		auto p = QPainter(giftIcon);
-		st::birthdayTodayIcon.paint(p, 0, 0, giftIcon->width());
-	}, giftIcon->lifetime());
-
-	rpl::duplicate(
-		birthday
-	) | rpl::map([](Data::Birthday value) {
-		return Data::IsBirthdayTodayValue(value);
-	}) | rpl::flatten_latest(
-	) | rpl::distinct_until_changed(
-	) | rpl::on_next([=](bool today) {
-		const auto disable = !today && user->session().premiumCanBuy();
-		button->setDisabled(disable);
-		button->setAttribute(Qt::WA_TransparentForMouseEvents, disable);
-		button->clearState();
-		giftIcon->setVisible(!disable);
-	}, result->lifetime());
 
 	BirthdayValueText(
 		rpl::duplicate(birthday),
@@ -1011,12 +995,6 @@ void DeleteContactNote(
 	result->finishAnimating();
 
 	Ui::ResizeFitChild(button, outer);
-
-	button->setClickedCallback([=] {
-		if (!button->isDisabled()) {
-			Ui::ShowStarGiftBox(controller, user);
-		}
-	});
 
 	return result;
 }
@@ -1762,7 +1740,7 @@ Section DetailsFiller::makeInfo() {
 
 		if (!user->isBot()) {
 			tracker.track(result->add(
-				CreateBirthday(result, controller, user),
+				CreateBirthday(result, user),
 				{},
 				style::al_justify));
 			tracker.track(result->add(

@@ -96,11 +96,8 @@ public:
 	[[nodiscard]] static QSize EmojiEffectSize();
 	[[nodiscard]] static QSize MessageEffectSize();
 	[[nodiscard]] static QSize EmojiSize();
-	[[nodiscard]] static ClickHandlerPtr ShowSetHandler(
-		not_null<DocumentData*> document);
 
 private:
-	[[nodiscard]] bool hasPremiumEffect() const;
 	[[nodiscard]] bool customEmojiPart() const;
 	[[nodiscard]] bool emojiSticker() const;
 	[[nodiscard]] bool webpagePart() const;
@@ -123,9 +120,6 @@ private:
 	void setupPlayer();
 	void playerCreated();
 	void unloadPlayer();
-	void emojiStickerClicked();
-	void premiumStickerClicked();
-	void checkPremiumEffectStart();
 
 	const not_null<Element*> _parent;
 	const not_null<DocumentData*> _data;
@@ -141,10 +135,7 @@ private:
 	mutable int _framesCount = -1;
 	ChatHelpers::StickerLottieSize _cachingTag = {};
 	mutable bool _oncePlayed : 1 = false;
-	mutable bool _premiumEffectPlayed : 1 = false;
-	mutable bool _premiumEffectSkipped : 1 = false;
 	mutable bool _nextLastFrame : 1 = false;
-	bool _skipPremiumEffect : 1 = false;
 	bool _customEmojiPart : 1 = false;
 	bool _emojiSticker : 1 = false;
 	bool _webpagePart : 1 = false;

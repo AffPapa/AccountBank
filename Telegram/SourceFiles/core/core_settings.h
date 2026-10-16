@@ -39,6 +39,10 @@ namespace Core {
 
 inline constexpr auto kScreenReaderModeDisabledKey
 	= "screen-reader-mode-disabled"_cs;
+inline constexpr auto kGhostModeKey = "ghost-mode"_cs;
+inline constexpr auto kHideSponsoredKey = "hide-sponsored"_cs;
+inline constexpr auto kKeepDeletedKey = "keep-deleted"_cs;
+inline constexpr auto kStreamerModeKey = "streamer-mode"_cs;
 
 struct WindowPosition {
 	int32 moncrc = 0;
@@ -186,6 +190,30 @@ public:
 	}
 	void setAskDownloadPath(bool value) {
 		_askDownloadPath = value;
+	}
+	[[nodiscard]] bool ghostMode() {
+		return readPref<bool>(kGhostModeKey, true);
+	}
+	void setGhostMode(bool value) {
+		writePref<bool>(kGhostModeKey, value);
+	}
+	[[nodiscard]] bool hideSponsored() {
+		return readPref<bool>(kHideSponsoredKey, true);
+	}
+	void setHideSponsored(bool value) {
+		writePref<bool>(kHideSponsoredKey, value);
+	}
+	[[nodiscard]] bool keepDeletedMessages() {
+		return readPref<bool>(kKeepDeletedKey, true);
+	}
+	void setKeepDeletedMessages(bool value) {
+		writePref<bool>(kKeepDeletedKey, value);
+	}
+	[[nodiscard]] bool streamerMode() {
+		return readPref<bool>(kStreamerModeKey, false);
+	}
+	void setStreamerMode(bool value) {
+		writePref<bool>(kStreamerModeKey, value);
 	}
 	[[nodiscard]] QString downloadPath() const {
 		return _downloadPath.current();

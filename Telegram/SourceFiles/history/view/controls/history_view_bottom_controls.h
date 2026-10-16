@@ -82,7 +82,6 @@ public:
 
 private:
 	void setupButtons();
-	void setupGiftToChannelButton();
 	void setupDirectMessageButton();
 	void setupOverlayIconButton(
 		not_null<Ui::IconButton*> button,
@@ -96,7 +95,6 @@ private:
 	void refreshJoinGroupText();
 	void refreshUnblockText();
 	void refreshMuteUnmuteText();
-	void refreshGiftToChannelShown();
 	void refreshDirectMessageShown();
 
 	void recomputeContentHeight();
@@ -125,7 +123,6 @@ private:
 	std::unique_ptr<Ui::FlatButton> _joinGroup;
 	std::unique_ptr<Ui::FlatButton> _muteUnmute;
 	std::unique_ptr<Ui::FlatButton> _reportMessages;
-	QPointer<Ui::IconButton> _giftToChannel;
 	QPointer<Ui::IconButton> _directMessage;
 	rpl::lifetime _directMessageLifetime;
 

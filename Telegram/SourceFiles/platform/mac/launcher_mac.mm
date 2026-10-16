@@ -16,6 +16,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <Cocoa/Cocoa.h>
 #include <CoreFoundation/CFURL.h>
 #include <sys/sysctl.h>
+#include <unistd.h>
 
 namespace Platform {
 
@@ -32,6 +33,46 @@ bool Launcher::launchUpdater(UpdaterLaunch action) {
 		return false;
 	}
 	@autoreleasepool {
+
+#ifdef TDESKTOP_DISABLE_AUTOUPDATE
+	if (action == UpdaterLaunch::JustRelaunch) {
+		// The updater is intentionally not bundled. Wait for this instance to
+		// release its local socket before starting the same signed executable.
+		@try {
+			const auto executable = [[NSBundle mainBundle] executablePath];
+			if (!executable.length) {
+				return false;
+			}
+			const auto script = @"pid=$1; shift; i=0; "
+				@"while kill -0 \"$pid\" 2>/dev/null; do "
+				@"i=$((i+1)); [ \"$i\" -le 300 ] || exit 1; "
+				@"sleep 0.1; done; exec \"$@\"";
+			auto args = [NSMutableArray arrayWithObjects:
+				@"-c",
+				script,
+				@"accountbank-restart",
+				[NSString stringWithFormat:@"%d", getpid()],
+				executable,
+				@"-workdir",
+				Q2NSString(cWorkingDir()),
+				@"-noupdate",
+				nil];
+			if (cRestartingToSettings()) [args addObject:@"-tosettings"];
+			if (cLaunchMode() == LaunchModeAutoStart) [args addObject:@"-autostart"];
+			if (Logs::DebugEnabled()) [args addObject:@"-debug"];
+			if (cStartInTray()) [args addObject:@"-startintray"];
+			if (cDataFile() != u"data"_q) {
+				[args addObject:@"-key"];
+				[args addObject:Q2NSString(cDataFile())];
+			}
+			return [NSTask launchedTaskWithLaunchPath:@"/bin/sh"
+				arguments:args] != nil;
+		} @catch (NSException *exception) {
+			LOG(("AccountBank Error: could not launch restart helper."));
+			return false;
+		}
+	}
+#endif // TDESKTOP_DISABLE_AUTOUPDATE
 
 #ifdef OS_MAC_STORE
 	// In AppStore version we don't have Updater.

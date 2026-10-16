@@ -33,7 +33,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/search_field_controller.h"
 #include "ui/ui_utility.h"
 #include "core/application.h"
-#include "calls/calls_instance.h"
 #include "core/shortcuts.h"
 #include "window/window_session_controller.h"
 #include "window/window_slide_animation.h"
@@ -449,7 +448,6 @@ void WrapWidget::setupTopBarMenuToggle() {
 	if (section.type() == Section::Type::Profile
 		&& (wrap() != Wrap::Side || hasStackHistory())) {
 		addTopBarMenuButton();
-		addProfileCallsButton();
 	} else if (section.type() == Section::Type::Settings) {
 		addTopBarMenuButton();
 		if (section.settingsType() == ::Settings::MainId()) {
@@ -583,39 +581,6 @@ void WrapWidget::addTopBarMenuButton() {
 
 bool WrapWidget::closeByOutsideClick() const {
 	return _content->closeByOutsideClick();
-}
-
-void WrapWidget::addProfileCallsButton() {
-	Expects(_topBar != nullptr);
-
-	const auto peer = key().peer();
-	const auto user = peer ? peer->asUser() : nullptr;
-	if (!user || user->sharedMediaInfo() || user->isInaccessible()) {
-		return;
-	}
-
-	user->session().changes().peerFlagsValue(
-		user,
-		Data::PeerUpdate::Flag::HasCalls
-	) | rpl::filter([=] {
-		return user->hasCalls();
-	}) | rpl::take(
-		1
-	) | rpl::on_next([=] {
-		_topBar->addButton(
-			base::make_unique_q<Ui::IconButton>(
-				_topBar,
-				(wrap() == Wrap::Layer
-					? st::infoLayerTopBarCall
-					: st::infoTopBarCall))
-		)->addClickHandler([=] {
-			Core::App().calls().startOutgoingCall(user, {});
-		});
-	}, _topBar->lifetime());
-
-	if (user && user->callsStatus() == UserData::CallsStatus::Unknown) {
-		user->updateFull();
-	}
 }
 
 bool WrapWidget::topBarMenuHasActions() const {

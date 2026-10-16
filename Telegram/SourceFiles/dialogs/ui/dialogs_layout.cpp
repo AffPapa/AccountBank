@@ -66,6 +66,8 @@ base::options::toggle DialogsMuteIcon({
 
 const auto kPsaBadgePrefix = "cloud_lng_badge_psa_";
 
+constexpr auto kSecondsInDay = 86400;
+
 [[nodiscard]] bool ShowUserBotIcon(not_null<UserData*> user) {
 	return user->isBot()
 		&& !user->isSupport()
@@ -423,6 +425,34 @@ enum class Flag {
 };
 inline constexpr bool is_flag_type(Flag) { return true; }
 
+[[nodiscard]] std::optional<QString> LastseenTimestamp(
+		not_null<const Entry*> entry) {
+	const auto history = entry->asHistory();
+	const auto user = history ? history->peer->asUser() : nullptr;
+	if (!user
+		|| user->isSelf()
+		|| user->isBot()
+		|| user->isSupport()
+		|| user->isNotificationsUser()
+		|| user->isServiceUser()) {
+		return std::nullopt;
+	}
+	const auto lastseen = user->lastseen();
+	// WHY: onlineTill is nonzero only for the exact last seen, so
+	// approximate or hidden statuses keep the regular date text.
+	const auto till = lastseen.onlineTill();
+	const auto now = base::unixtime::now();
+	if (!till || lastseen.isOnline(now)) {
+		return std::nullopt;
+	}
+	const auto full = base::unixtime::parse(till);
+	return ((now - till) > kSecondsInDay)
+		? (full.date().toString(u"dd.MM"_q)
+			+ u' '
+			+ full.time().toString(u"hh:mm"_q))
+		: full.time().toString(u"hh:mm"_q);
+}
+
 void PaintDialogDate(
 		QPainter &p,
 		not_null<const Entry*> entry,
@@ -430,6 +460,11 @@ void PaintDialogDate(
 		TimeId date,
 		QRect &rectForName,
 		const PaintContext &context) {
+	const auto lastseen = LastseenTimestamp(entry);
+	if (lastseen) {
+		PaintRowTopRight(p, *lastseen, rectForName, context);
+		return;
+	}
 	const auto resolved = fakeRow
 		? fakeRow->dateText(date, context.now)
 		: entry->chatListTimestampText(date, context.now);

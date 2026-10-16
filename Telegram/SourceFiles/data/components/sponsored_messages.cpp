@@ -10,6 +10,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "api/api_text_entities.h"
 #include "api/api_peer_search.h" // SponsoredSearchResult
 #include "apiwrap.h"
+#include "core/application.h"
+#include "core/core_settings.h"
 #include "core/click_handler_types.h"
 #include "data/data_channel.h"
 #include "data/data_document.h"
@@ -325,7 +327,8 @@ bool SponsoredMessages::isTopBarFor(not_null<History*> history) const {
 }
 
 void SponsoredMessages::request(not_null<History*> history, Fn<void()> done) {
-	if (!canHaveFor(history)) {
+	if (!canHaveFor(history)
+		|| Core::App().settings().hideSponsored()) {
 		return;
 	}
 	auto &request = _requests[history];
@@ -365,7 +368,7 @@ void SponsoredMessages::requestForVideo(
 		Fn<void(SponsoredForVideo)> done) {
 	Expects(done != nullptr);
 
-	if (!canHaveFor(item)) {
+	if (!canHaveFor(item) || Core::App().settings().hideSponsored()) {
 		done({});
 		return;
 	}

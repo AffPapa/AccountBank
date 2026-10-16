@@ -475,6 +475,10 @@ public:
 		bool isForumPost);
 	void setPostAuthor(const QString &author);
 	void setRealId(MsgId newId);
+	void markServerDeleted();
+	[[nodiscard]] bool isServerDeleted() const {
+		return _serverDeleted;
+	}
 	void markEphemeralSent();
 	void markTextAppearingStarted();
 	void incrementReplyToTopCounter();
@@ -823,6 +827,7 @@ private:
 	const not_null<PeerData*> _from;
 	mutable PeerData *_displayFrom = nullptr;
 	mutable MessageFlags _flags = 0;
+	bool _serverDeleted = false;
 
 	TextWithEntities _text;
 

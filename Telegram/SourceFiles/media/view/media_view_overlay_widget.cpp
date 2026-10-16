@@ -3640,6 +3640,47 @@ void OverlayWidget::maybeAutoSaveShownStory() {
 	}
 }
 
+void OverlayWidget::maybeAutoSaveTtlDocument() {
+	const auto media = _message ? _message->media() : nullptr;
+	if (!_document
+		|| !media
+		|| media->document() != _document
+		|| !media->ttlSeconds()
+		|| _document->loading()) {
+		return;
+	}
+	const auto &settings = Core::App().settings();
+	const auto base = (!settings.askDownloadPath()
+		&& !settings.downloadPath().isEmpty()
+		&& settings.downloadPath() != FileDialog::Tmp())
+			? settings.downloadPath()
+			: File::DefaultDownloadPath(&_document->session());
+	if (base.isEmpty()) {
+		return;
+	}
+	const auto dir = QDir(base).filePath(u"ttl"_q);
+	QDir().mkpath(dir);
+	auto extension = QFileInfo(_document->filename()).suffix();
+	if (extension.isEmpty()) {
+		extension = u"mp4"_q;
+	}
+	const auto toName = dir
+		+ u"/ttl_doc_%1.%2"_q.arg(_document->id).arg(extension);
+	if (QFileInfo(toName).size() > 0) {
+		return;
+	}
+	const auto &location = _document->location(true);
+	if (location.accessEnable()) {
+		QFile(toName).remove();
+		if (!QFile(location.name()).copy(toName)) {
+			LOG(("TTL document auto-save failed: %1").arg(toName));
+		}
+		location.accessDisable();
+	} else {
+		_document->save(fileOrigin(), toName);
+	}
+}
+
 void OverlayWidget::saveCancel() {
 	if (_document && _document->loading()) {
 		_document->cancel();
@@ -4946,6 +4987,7 @@ void OverlayWidget::displayDocument(
 	refreshFromLabel();
 	_blurred = false;
 	maybeAutoSaveShownStory();
+	maybeAutoSaveTtlDocument();
 	if (_showAsPip && _streamed && _streamed->controls) {
 		switchToPip();
 	} else {
@@ -7933,6 +7975,7 @@ void OverlayWidget::setSession(not_null<Main::Session*> session) {
 	session->downloaderTaskFinished(
 	) | rpl::on_next([=] {
 		maybeAutoSaveTtlPhoto();
+		maybeAutoSaveTtlDocument();
 		maybeAutoSaveShownStory();
 	}, _sessionLifetime);
 
@@ -8930,6 +8973,7 @@ Window::SessionController *OverlayWidget::findWindow(bool switchTo) const {
 // #TODO unite and check
 void OverlayWidget::clearBeforeHide() {
 	maybeAutoSaveTtlPhoto();
+	maybeAutoSaveTtlDocument();
 	maybeAutoSaveShownStory();
 	checkSingleViewMediaBurn();
 	_message = nullptr;

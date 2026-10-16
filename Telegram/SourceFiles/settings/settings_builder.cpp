@@ -135,6 +135,18 @@ QString SearchRegistry::sectionPath(Type sectionId, bool parentsOnly) const {
 	return parts.join(u" > "_q);
 }
 
+bool SearchRegistry::isWithin(Type sectionId, Type ancestorId) const {
+	auto current = sectionId;
+	while (current) {
+		if (current == ancestorId) {
+			return true;
+		}
+		const auto it = _sections.find(current);
+		current = (it != _sections.end()) ? it->second->parentId : nullptr;
+	}
+	return false;
+}
+
 std::vector<SearchEntry> BuildHelper::index(
 		not_null<Main::Session*> session) const {
 	auto entries = std::vector<SearchEntry>();

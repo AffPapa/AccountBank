@@ -99,7 +99,6 @@ private:
 	void setupRootView();
 	void setupTopicReopenBar();
 	void setupTranslateBar();
-	void setupGroupCallBar();
 	void setupRequestsBar();
 	void setupPeerBars();
 	void requestSponsoredMessageBar();

@@ -34,6 +34,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_saved_messages.h"
 #include "data/data_saved_sublist.h"
 #include "data/data_session.h"
+#include "data/components/message_archive.h"
 #include "data/data_media_types.h"
 #include "data/data_channel_admins.h"
 #include "data/data_changes.h"
@@ -2307,6 +2308,7 @@ void History::inboxRead(not_null<const HistoryItem*> wasRead) {
 }
 
 void History::outboxRead(MsgId upTo) {
+	owner().archive().logRead(this, upTo);
 	setOutboxReadTill(upTo);
 	if (const auto last = chatListMessage()) {
 		if (last->out() && last->isRegular() && last->id <= upTo) {

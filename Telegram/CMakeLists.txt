@@ -31,7 +31,6 @@ include(cmake/lib_tgcalls.cmake)
 include(cmake/lib_prisma.cmake)
 include(cmake/lib_fido2.cmake)
 include(cmake/lib_zxcvbn.cmake)
-include(cmake/td_export.cmake)
 include(cmake/td_gram.cmake)
 include(cmake/td_iv.cmake)
 include(cmake/td_lang.cmake)
@@ -74,7 +73,6 @@ target_link_libraries(Telegram
 PRIVATE
     tdesktop::lib_fido2
     tdesktop::lib_tgcalls
-    tdesktop::td_export
     tdesktop::td_gram
     tdesktop::td_iv
     tdesktop::td_lang
@@ -109,6 +107,7 @@ PRIVATE
     desktop-app::external_openal
     desktop-app::external_wallet_engine
     desktop-app::external_xxhash
+    -lsqlite3
 )
 
 if (NOT DESKTOP_APP_DISABLE_SWIFT6)
@@ -406,8 +405,6 @@ PRIVATE
     boxes/star_gift_preview_box.h
     boxes/star_gift_resale_box.cpp
     boxes/star_gift_resale_box.h
-    boxes/sticker_creator_box.cpp
-    boxes/sticker_creator_box.h
     boxes/sticker_set_box.cpp
     boxes/sticker_set_box.h
     boxes/stickers_box.cpp
@@ -515,8 +512,6 @@ PRIVATE
     chat_helpers/emoji_keywords.h
     chat_helpers/emoji_list_widget.cpp
     chat_helpers/emoji_list_widget.h
-    chat_helpers/emoji_picker_overlay.cpp
-    chat_helpers/emoji_picker_overlay.h
     chat_helpers/emoji_sets_manager.cpp
     chat_helpers/emoji_sets_manager.h
     chat_helpers/emoji_suggestions_widget.cpp
@@ -659,6 +654,8 @@ PRIVATE
     data/components/scheduled_messages.h
     data/components/sponsored_messages.cpp
     data/components/sponsored_messages.h
+    data/components/message_archive.cpp
+    data/components/message_archive.h
     data/components/top_peers.cpp
     data/components/top_peers.h
     data/components/welcome_messages.cpp
@@ -945,18 +942,9 @@ PRIVATE
     editor/video/video_timeline_seeker.h
     editor/video_item_timeline.cpp
     editor/video_item_timeline.h
-    export/export_manager.cpp
-    export/export_manager.h
-    export/view/export_view_content.cpp
-    export/view/export_view_content.h
-    export/view/export_view_panel_controller.cpp
-    export/view/export_view_panel_controller.h
-    export/view/export_view_progress.cpp
-    export/view/export_view_progress.h
-    export/view/export_view_settings.cpp
-    export/view/export_view_settings.h
-    export/view/export_view_top_bar.cpp
-    export/view/export_view_top_bar.h
+    export/export_settings.cpp
+    export/export_settings.h
+    export/output/export_output_abstract.h
     history/admin_log/history_admin_log_filter.cpp
     history/admin_log/history_admin_log_filter.h
     history/admin_log/history_admin_log_inner.cpp
@@ -2397,7 +2385,6 @@ PRIVATE
     qrc/emoji_8.qrc
     qrc/emoji_preview.qrc
     qrc/telegram/animations.qrc
-    qrc/telegram/export.qrc
     qrc/telegram/export_rich.qrc
     qrc/telegram/picker.qrc
     qrc/telegram/telegram.qrc
@@ -2450,35 +2437,9 @@ elseif (APPLE)
     if (CMAKE_GENERATOR STREQUAL Xcode)
         target_add_resource(Telegram ${icons_path})
     else()
-        set(icon_path ${icons_path}/Icon.iconset)
-        find_program(ICONUTIL iconutil)
-        find_program(PNG2ICNS png2icns)
-        if (ICONUTIL)
-            add_custom_command(
-                OUTPUT Icon.icns
-                COMMAND ${ICONUTIL}
-                ARGS
-                    --convert icns
-                    --output Icon.icns
-                    ${icon_path}
-            )
-        elseif (PNG2ICNS)
-            add_custom_command(
-                OUTPUT Icon.icns
-                COMMAND ${PNG2ICNS}
-                ARGS
-                    Icon.icns
-                    ${icon_path}/icon_16x16.png
-                    ${icon_path}/icon_32x32.png
-                    ${icon_path}/icon_128x128.png
-                    ${icon_path}/icon_256x256.png
-                    ${icon_path}/icon_512x512.png
-            )
-        endif()
-        if (ICONUTIL OR PNG2ICNS)
-            set_source_files_properties(Icon.icns PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
-            target_add_resource(Telegram Icon.icns)
-        endif()
+        set(icon_path ${CMAKE_CURRENT_SOURCE_DIR}/Resources/AccountBank/Icon.icns)
+        set_source_files_properties(${icon_path} PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+        target_add_resource(Telegram ${icon_path})
     endif()
 
     set(lang_packs
@@ -2575,7 +2536,7 @@ set_target_properties(Telegram PROPERTIES
     XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER ${bundle_identifier}
     XCODE_ATTRIBUTE_CURRENT_PROJECT_VERSION ${desktop_app_version_string}
     XCODE_ATTRIBUTE_PRODUCT_NAME ${output_name}
-    XCODE_ATTRIBUTE_ASSETCATALOG_COMPILER_APPICON_NAME Icon
+    XCODE_ATTRIBUTE_ASSETCATALOG_COMPILER_APPICON_NAME AccountBank
     XCODE_ATTRIBUTE_ENABLE_HARDENED_RUNTIME YES
     XCODE_ATTRIBUTE_COMBINE_HIDPI_IMAGES YES
     XCODE_ATTRIBUTE_COPY_PHASE_STRIP NO
@@ -2593,12 +2554,26 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/Telegram PREFIX Resources FILES ${
 
 target_include_directories(Telegram PRIVATE ${src_loc})
 
-target_compile_definitions(Telegram
-PRIVATE
-    TDESKTOP_API_ID=${TDESKTOP_API_ID}
-    TDESKTOP_API_HASH=${TDESKTOP_API_HASH}
-    G_LOG_DOMAIN="Telegram"
-)
+if (APPLE)
+    # Keep API credentials out of compiler arguments and failure logs.
+    set(accountbank_api_header ${CMAKE_CURRENT_BINARY_DIR}/gen/accountbank_api_config.h)
+    configure_file(
+        cmake/accountbank_api_config.h.in
+        ${accountbank_api_header}
+        @ONLY)
+    target_compile_options(Telegram PRIVATE -include ${accountbank_api_header})
+else()
+    target_compile_definitions(Telegram PRIVATE
+        TDESKTOP_API_ID=${TDESKTOP_API_ID}
+        TDESKTOP_API_HASH=${TDESKTOP_API_HASH})
+endif()
+target_compile_definitions(Telegram PRIVATE G_LOG_DOMAIN="Telegram")
+
+if (APPLE)
+    # The static macOS build includes many optional translation units. Drop
+    # unreachable sections from the final executable to reduce its footprint.
+    target_link_options(Telegram PRIVATE $<$<CONFIG:Release>:-Wl,-dead_strip>)
+endif()
 
 get_property(is_multi_config GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
 if (APPLE

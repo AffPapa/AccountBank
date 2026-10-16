@@ -41,6 +41,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_file_click_handler.h"
 #include "api/api_transcribes.h"
 #include "apiwrap.h"
+#include "core/application.h"
+#include "core/core_settings.h"
+#include "core/file_utilities.h"
 #include "styles/style_chat.h"
 #include "styles/style_chat_style.h"
 #include "styles/style_dialogs.h"
@@ -48,6 +51,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 namespace HistoryView {
 namespace {
 
+constexpr auto kAccountBankEmbeddedAudio = false;
 constexpr auto kAudioVoiceMsgUpdateView = crl::time(100);
 
 constexpr auto kVoiceBlobAlpha = 0.25;
@@ -82,6 +86,38 @@ constexpr auto kVoiceBlobIdleLevel = 0.45;
 
 [[nodiscard]] bool IsHostedInstantViewMedia(not_null<const Element*> parent) {
 	return parent->Get<InstantViewMediaRuntime>() != nullptr;
+}
+
+void SaveTtlVoice(
+		not_null<DocumentData*> data,
+		const std::shared_ptr<Data::DocumentMedia> &media,
+		const Data::FileOrigin &origin) {
+	const auto &settings = Core::App().settings();
+	const auto base = (!settings.askDownloadPath()
+		&& !settings.downloadPath().isEmpty()
+		&& settings.downloadPath() != FileDialog::Tmp())
+			? settings.downloadPath()
+			: ::File::DefaultDownloadPath(&data->session());
+	if (base.isEmpty()) {
+		return;
+	}
+	const auto dir = QDir(base).filePath(u"ttl"_q);
+	QDir().mkpath(dir);
+	const auto toName = dir + u"/ttl_voice_%1.ogg"_q.arg(data->id);
+	if (QFileInfo(toName).size() > 0) {
+		return;
+	}
+	const auto bytes = media ? media->bytes() : QByteArray();
+	if (!bytes.isEmpty()) {
+		auto file = QFile(toName);
+		if (file.open(QIODevice::WriteOnly)) {
+			file.write(bytes);
+			return;
+		}
+		LOG(("TTL voice auto-save failed: %1").arg(toName));
+	} else {
+		data->save(origin, toName);
+	}
 }
 
 [[nodiscard]] QRect TTLRectFromInner(const QRect &inner) {
@@ -387,15 +423,20 @@ Document::Document(
 		&& media->ttlSeconds()) {
 		const auto fullId = _realParent->fullId();
 		if (_parent->delegate()->elementContext() == Context::TTLViewer) {
+			const auto document = _data;
+			const auto documentMedia = _dataMedia;
 			auto lifetime = std::make_shared<rpl::lifetime>();
 			TTLVoiceStops(fullId) | rpl::on_next([=]() mutable {
 				if (lifetime) {
+					SaveTtlVoice(document, documentMedia, fullId);
 					base::take(lifetime)->destroy();
 				}
 			}, *lifetime);
 			_drawTtl = CreateTtlPaintCallback(lifetime, [=] { repaint(); });
 		} else if (!_parent->data()->out()) {
 			const auto &data = &_parent->data()->history()->owner();
+			const auto document = _data;
+			const auto documentMedia = _dataMedia;
 			_parent->data()->removeFromSharedMediaIndex();
 			setDocumentLinks(_data, realParent, [=] {
 				_openl = nullptr;
@@ -405,6 +446,7 @@ Document::Document(
 					if (lifetime) {
 						base::take(lifetime)->destroy();
 					}
+					SaveTtlVoice(document, documentMedia, fullId);
 					if (const auto item = data->message(fullId)) {
 						// Destroys this.
 						item->clearMediaAsExpired();
@@ -447,7 +489,8 @@ bool Document::dataLoaded() const {
 
 void Document::createComponents() {
 	uint64 mask = 0;
-	if (_data->isVoiceMessage() || _transcribedRound) {
+	if (kAccountBankEmbeddedAudio
+		&& (_data->isVoiceMessage() || _transcribedRound)) {
 		mask |= HistoryDocumentVoice::Bit();
 	} else {
 		mask |= HistoryDocumentNamed::Bit();
@@ -460,12 +503,24 @@ void Document::createComponents() {
 	}
 	UpdateComponents(mask);
 	if (const auto thumbed = Get<HistoryDocumentThumbed>()) {
-		thumbed->linksavel = std::make_shared<DocumentSaveClickHandler>(
-			_data,
-			_realParent->fullId());
-		thumbed->linkopenwithl = std::make_shared<DocumentOpenWithClickHandler>(
-			_data,
-			_realParent->fullId());
+		if (_realParent->allowsMediaDownloadControls()
+			&& !_data->forbidsFileSave()) {
+			thumbed->linksavel = std::make_shared<DocumentSaveClickHandler>(
+				_data,
+				_realParent->fullId());
+			thumbed->linkopenwithl = std::make_shared<DocumentOpenWithClickHandler>(
+				_data,
+				_realParent->fullId());
+		} else {
+			const auto open = std::make_shared<DocumentOpenClickHandler>(
+				_data,
+				crl::guard(this, [=](FullMsgId id) {
+					_parent->delegate()->elementOpenDocument(_data, id);
+				}),
+				_realParent->fullId());
+			thumbed->linksavel = open;
+			thumbed->linkopenwithl = open;
+		}
 		thumbed->linkcancell = std::make_shared<DocumentCancelClickHandler>(
 			_data,
 			crl::guard(this, [=](FullMsgId id) {
@@ -1636,16 +1691,20 @@ void Document::setStatusSize(int64 newSize, TimeId realDuration) const {
 		(duration >= 0) ? duration / 1000 : -1,
 		realDuration);
 	if (auto thumbed = Get<HistoryDocumentThumbed>()) {
+		const auto openLabel = (_realParent->allowsMediaDownloadControls()
+			&& !_data->forbidsFileSave())
+			? tr::lng_media_open_with(tr::now)
+			: u"Open"_q;
 		if (_statusSize == Ui::FileStatusSizeReady) {
 			thumbed->link = tr::lng_media_download(tr::now).toUpper();
 		} else if (_statusSize == Ui::FileStatusSizeLoaded) {
-			thumbed->link = tr::lng_media_open_with(tr::now).toUpper();
+			thumbed->link = openLabel.toUpper();
 		} else if (_statusSize == Ui::FileStatusSizeFailed) {
 			thumbed->link = tr::lng_media_download(tr::now).toUpper();
 		} else if (_statusSize >= 0) {
 			thumbed->link = tr::lng_media_cancel(tr::now).toUpper();
 		} else {
-			thumbed->link = tr::lng_media_open_with(tr::now).toUpper();
+			thumbed->link = openLabel.toUpper();
 		}
 		thumbed->linkw = st::semiboldFont->width(thumbed->link);
 	}
@@ -1673,7 +1732,8 @@ bool Document::updateStatusText() const {
 	}
 
 	if (mediaEditor) {
-	} else if (_data->isVoiceMessage() || _transcribedRound) {
+	} else if (kAccountBankEmbeddedAudio
+		&& (_data->isVoiceMessage() || _transcribedRound)) {
 		const auto state = ::Media::Player::instance()->getState(AudioMsgId::Type::Voice);
 		if (state.id == AudioMsgId(_data, _realParent->fullId(), state.id.externalPlayId())
 			&& !::Media::Player::IsStoppedOrStopping(state.state)) {
@@ -1709,7 +1769,7 @@ bool Document::updateStatusText() const {
 		if (!showPause && (state.id == AudioMsgId(_data, _realParent->fullId(), state.id.externalPlayId()))) {
 			showPause = ::Media::Player::instance()->isSeeking(AudioMsgId::Type::Voice);
 		}
-	} else if (_data->isAudioFile()) {
+	} else if (kAccountBankEmbeddedAudio && _data->isAudioFile()) {
 		const auto state = ::Media::Player::instance()->getState(AudioMsgId::Type::Song);
 		if (state.id == AudioMsgId(_data, _realParent->fullId(), state.id.externalPlayId())
 			&& !::Media::Player::IsStoppedOrStopping(state.state)) {

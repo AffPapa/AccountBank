@@ -1,0 +1,4 @@
+# Copy this file to accountbank-api.local.cmake inside this folder.
+# The real file is ignored by Git. Do not paste its values into chat or logs.
+set(TDESKTOP_API_ID "YOUR_API_ID")
+set(TDESKTOP_API_HASH "YOUR_API_HASH")

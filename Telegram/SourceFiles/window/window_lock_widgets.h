@@ -19,7 +19,6 @@ enum class SystemUnlockResult;
 
 namespace Ui {
 class PasswordInput;
-class LinkButton;
 class RoundButton;
 class CheckView;
 } // namespace Ui
@@ -104,7 +103,6 @@ private:
 	rpl::variable<SystemUnlockType> _systemUnlockAllowed;
 	object_ptr<Ui::PasswordInput> _passcode;
 	object_ptr<Ui::RoundButton> _submit;
-	object_ptr<Ui::LinkButton> _logout;
 	QString _error;
 
 	rpl::lifetime _systemUnlockSuggested;

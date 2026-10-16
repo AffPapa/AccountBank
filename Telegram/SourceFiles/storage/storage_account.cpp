@@ -43,6 +43,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "webview/webview_interface.h"
 #include "window/themes/window_theme.h"
 
+#include <QtCore/QFileInfo>
+
 namespace Storage {
 namespace {
 
@@ -52,6 +54,7 @@ using Database = Cache::Database;
 constexpr auto kDelayedWriteTimeout = crl::time(1000);
 constexpr auto kWriteSearchSuggestionsDelay = 5 * crl::time(1000);
 constexpr auto kMaxSavedPlaybackPositions = 256;
+constexpr auto kAccountBankCacheLimit = int64(128) * 1024 * 1024;
 
 constexpr auto kStickersVersionTag = quint32(-1);
 constexpr auto kStickersSerializeVersion = 4;
@@ -181,8 +184,8 @@ Account::Account(not_null<Main::Account*> owner, const QString &dataName)
 , _basePath(BaseGlobalPath() + ToFilePart(_dataNameKey) + QChar('/'))
 , _tempPath(BaseGlobalPath() + "temp_" + _dataName + QChar('/'))
 , _databasePath(ComputeDatabasePath(dataName))
-, _cacheTotalSizeLimit(Database::Settings().totalSizeLimit)
-, _cacheBigFileTotalSizeLimit(Database::Settings().totalSizeLimit)
+, _cacheTotalSizeLimit(kAccountBankCacheLimit)
+, _cacheBigFileTotalSizeLimit(kAccountBankCacheLimit)
 , _cacheTotalTimeLimit(Database::Settings().totalTimeLimit)
 , _cacheBigFileTotalTimeLimit(Database::Settings().totalTimeLimit)
 , _writeMapTimer([=] { writeMap(); })
@@ -212,10 +215,19 @@ QString Account::supportModePath() const {
 	return _databasePath + u"support"_q;
 }
 
+QString Account::accountFolder() const {
+	return _basePath;
+}
+
 StartResult Account::legacyStart(const QByteArray &passcode) {
 	const auto result = readMapWith(MTP::AuthKeyPtr(), passcode);
 	if (result == ReadMapResult::Failed) {
-		Assert(_localKey == nullptr);
+		if (hasExistingStorageFiles()) {
+			// A missing modern key must not convert an existing account
+			// into a fresh blank one. Valid legacy maps returned Success.
+			LOG(("App Error: account files exist but their key or map cannot be read."));
+			return StartResult::Failed;
+		}
 	} else if (result == ReadMapResult::IncorrectPasscode) {
 		return StartResult::IncorrectPasscodeLegacy;
 	}
@@ -223,11 +235,115 @@ StartResult Account::legacyStart(const QByteArray &passcode) {
 	return StartResult::Success;
 }
 
+bool Account::hasExistingStorageFiles() const {
+	const auto exists = [](const QString &base) {
+		return QFileInfo::exists(base + 's')
+			|| QFileInfo::exists(base + '0')
+			|| QFileInfo::exists(base + '1');
+	};
+	return exists(_basePath + u"map"_q)
+		|| exists(BaseGlobalPath() + ToFilePart(_dataNameKey));
+}
+
+std::optional<uint64> Account::authorizationUserId(
+		const MTP::AuthKeyPtr &key) const {
+	// Inspect the encrypted authorization without applying settings or writing.
+	FileReadDescriptor file;
+	if (!ReadEncryptedFile(
+			file,
+			ToFilePart(_dataNameKey),
+			BaseGlobalPath(),
+			key,
+			false)) {
+		return std::nullopt;
+	}
+	auto block = quint32();
+	auto serialized = QByteArray();
+	file.stream >> block >> serialized;
+	if (!CheckStreamStatus(file.stream)
+		|| !file.stream.atEnd()
+		|| block != dbiMtpAuthorization) {
+		return std::nullopt;
+	}
+	QDataStream auth(serialized);
+	auth.setVersion(QDataStream::Qt_5_1);
+	auto legacyUserId = qint32();
+	auto legacyDcId = qint32();
+	auth >> legacyUserId >> legacyDcId;
+	if (!CheckStreamStatus(auth)) {
+		return std::nullopt;
+	}
+	auto userId = quint64();
+	if ((quint64(quint32(legacyUserId)) << 32 | quint32(legacyDcId))
+		== ~quint64(0)) {
+		auto dcId = qint32();
+		auth >> userId >> dcId;
+		if (!CheckStreamStatus(auth)) {
+			return std::nullopt;
+		}
+	} else {
+		if (legacyUserId < 0) {
+			return std::nullopt;
+		}
+		userId = quint64(legacyUserId);
+	}
+	for (auto group = 0; group != 2; ++group) {
+		auto count = qint32();
+		auth >> count;
+		if (!CheckStreamStatus(auth)
+			|| count < 0
+			|| count > serialized.size()
+				/ (int(sizeof(qint32)) + MTP::AuthKey::kSize)) {
+			return std::nullopt;
+		}
+		for (auto i = 0; i != count; ++i) {
+			auto keyDcId = qint32();
+			auth >> keyDcId;
+			auto key = MTP::AuthKey::Data();
+			if (!CheckStreamStatus(auth)
+				|| auth.readRawData(
+					reinterpret_cast<char*>(key.data()),
+					int(key.size())) != int(key.size())) {
+				return std::nullopt;
+			}
+		}
+	}
+	return auth.atEnd() ? std::optional<uint64>(userId) : std::nullopt;
+}
+
 std::unique_ptr<MTP::Config> Account::start(MTP::AuthKeyPtr localKey) {
 	Expects(localKey != nullptr);
 
 	_localKey = std::move(localKey);
-	readMapWith(_localKey);
+	const auto mapBase = _basePath + u"map"_q;
+	const auto mapExists = QFileInfo::exists(mapBase + 's')
+		|| QFileInfo::exists(mapBase + '0')
+		|| QFileInfo::exists(mapBase + '1');
+	const auto userId = mapExists
+		? authorizationUserId(_localKey)
+		: std::nullopt;
+	if (mapExists && !userId) {
+		// A map may hold a logged-in session. Missing or malformed MTP data
+		// must never be recreated and then interpreted as a blank slot.
+		_mapReadFailed = true;
+		return nullptr;
+	}
+	if (!mapExists && hasExistingStorageFiles()) {
+		// The map can lag behind a newly written login authorization. Recover
+		// both unfinished blank slots and fully parsed authorized sessions.
+		if (!authorizationUserId(_localKey) || !readMtpData()) {
+			_mapReadFailed = true;
+			return nullptr;
+		}
+		clearLegacyFiles();
+		return readMtpConfig();
+	}
+	const auto result = readMapWith(_localKey);
+	if (mapExists && result != ReadMapResult::Success) {
+		// A broken map can hold a real login. Never treat it as a new account.
+		_mapReadFailed = true;
+		return nullptr;
+	}
 	clearLegacyFiles();
 	return readMtpConfig();
 }
@@ -318,7 +434,7 @@ Account::ReadMapResult Account::readMapWith(
 	auto ms = crl::now();
 
 	FileReadDescriptor mapData;
-	if (!ReadFile(mapData, u"map"_q, _basePath)) {
+	if (!ReadFile(mapData, u"map"_q, _basePath, false)) {
 		return ReadMapResult::Failed;
 	}
 	LOG(("App Info: reading map..."));
@@ -542,6 +658,12 @@ Account::ReadMapResult Account::readMapWith(
 		}
 	}
 
+	if (localKey
+		&& !selfSerialized.isEmpty()
+		&& authorizationUserId(localKey) == 0) {
+		// A stored session with a blank authorization must not be discarded.
+		return ReadMapResult::Failed;
+	}
 	_localKey = std::move(localKey);
 
 	_draftsMap = draftsMap;
@@ -609,7 +731,15 @@ Account::ReadMapResult Account::readMapWith(
 	}
 
 	auto stored = readSessionSettings();
-	readMtpData();
+	if (!readMtpData()) {
+		// Earlier reads may schedule migration writes. A broken authorization
+		// file must never cause those writes on account destruction.
+		_writeMapTimer.cancel();
+		_writePrefsTimer.cancel();
+		_mapChanged = false;
+		_prefsChanged = false;
+		return ReadMapResult::Failed;
+	}
 
 	DEBUG_LOG(("selfSerialized set: %1").arg(selfSerialized.size()));
 	_owner->setSessionFromStorage(
@@ -852,9 +982,9 @@ void Account::reset() {
 	_fileLocationAliases.clear();
 	_downloadsSerialize = nullptr;
 	_downloadsSerialized = QByteArray();
-	_cacheTotalSizeLimit = Database::Settings().totalSizeLimit;
+	_cacheTotalSizeLimit = kAccountBankCacheLimit;
 	_cacheTotalTimeLimit = Database::Settings().totalTimeLimit;
-	_cacheBigFileTotalSizeLimit = Database::Settings().totalSizeLimit;
+	_cacheBigFileTotalSizeLimit = kAccountBankCacheLimit;
 	_cacheBigFileTotalTimeLimit = Database::Settings().totalTimeLimit;
 	_mediaLastPlaybackPosition.clear();
 
@@ -1211,17 +1341,26 @@ void Account::writeMtpData() {
 	mtp.writeEncrypted(data, _localKey);
 }
 
-void Account::readMtpData() {
+bool Account::readMtpData() {
 	auto context = prepareReadSettingsContext();
 
 	FileReadDescriptor mtp;
-	if (!ReadEncryptedFile(mtp, ToFilePart(_dataNameKey), BaseGlobalPath(), _localKey)) {
+	const auto name = ToFilePart(_dataNameKey);
+	const auto base = BaseGlobalPath() + name;
+	const auto exists = QFileInfo::exists(base + 's')
+		|| QFileInfo::exists(base + '0')
+		|| QFileInfo::exists(base + '1');
+	if (!ReadEncryptedFile(mtp, name, BaseGlobalPath(), _localKey, false)) {
+		if (exists) {
+			LOG(("App Error: an existing account authorization could not be read."));
+			return false;
+		}
 		if (_localKey) {
 			Local::readOldMtpData(true, context);
 			applyReadContext(std::move(context));
 			writeMtpData();
 		}
-		return;
+		return true;
 	}
 
 	LOG(("App Info: reading encrypted mtp data..."));
@@ -1229,14 +1368,15 @@ void Account::readMtpData() {
 		quint32 blockId;
 		mtp.stream >> blockId;
 		if (!CheckStreamStatus(mtp.stream)) {
-			return writeMtpData();
+			return false;
 		}
 
 		if (!ReadSetting(blockId, mtp.stream, mtp.version, context)) {
-			return writeMtpData();
+			return false;
 		}
 	}
 	applyReadContext(std::move(context));
+	return true;
 }
 
 void Account::writeMtpConfig() {

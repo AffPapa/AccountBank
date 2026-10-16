@@ -158,16 +158,34 @@ void File::setDocumentLinks(
 		not_null<HistoryItem*> realParent,
 		Fn<bool()> openHook) {
 	const auto context = realParent->fullId();
-	setLinks(
-		std::make_shared<DocumentOpenClickHandler>(
+	const auto allowSave = realParent->allowsMediaDownloadControls()
+		&& !document->forbidsFileSave();
+	const auto manualMedia = allowSave
+		&& (document->isVoiceMessage()
+			|| document->isAudioFile()
+			|| document->isVideoMessage()
+			|| document->isVideoFile()
+			|| document->isAnimation());
+	auto open = FileClickHandlerPtr(std::make_shared<DocumentOpenClickHandler>(
+		document,
+		crl::guard(this, [=](FullMsgId id) {
+			if (!openHook || !openHook()) {
+				_parent->delegate()->elementOpenDocument(document, id);
+			}
+		}),
+		context));
+	auto save = allowSave
+		? FileClickHandlerPtr(std::make_shared<DocumentSaveClickHandler>(
 			document,
-			crl::guard(this, [=](FullMsgId id) {
-				if (!openHook || !openHook()) {
-					_parent->delegate()->elementOpenDocument(document, id);
-				}
-			}),
-			context),
-		std::make_shared<DocumentSaveClickHandler>(document, context),
+			context))
+		: open;
+	setLinks(
+		manualMedia
+			? FileClickHandlerPtr(std::make_shared<DocumentOpenWithClickHandler>(
+				document,
+				context))
+			: std::move(open),
+		std::move(save),
 		std::make_shared<DocumentCancelClickHandler>(
 			document,
 			crl::guard(this, [=](FullMsgId id) {

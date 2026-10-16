@@ -25,7 +25,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/history.h"
 #include "history/history_item.h"
 #include "history/view/history_view_contact_status.h"
-#include "history/view/history_view_group_call_bar.h"
 #include "history/view/history_view_pinned_bar.h"
 #include "history/view/history_view_pinned_section.h"
 #include "history/view/history_view_pinned_tracker.h"
@@ -463,51 +462,6 @@ void TopControls::setupTranslateBar() {
 	}, _translateBar->lifetime());
 
 	_translateBar->finishAnimating();
-}
-
-void TopControls::setupGroupCallBar() {
-	const auto peer = _history->peer;
-	if (!peer->isChannel() && !peer->isChat()) {
-		return;
-	}
-	_groupCallBar = std::make_unique<Ui::GroupCallBar>(
-		_topBars.get(),
-		GroupCallBarContentByPeer(
-			peer,
-			st::historyGroupCallUserpics.size,
-			showInForum()),
-		Core::App().appDeactivatedValue());
-
-	_controller->adaptive().oneColumnValue(
-	) | rpl::on_next([=](bool one) {
-		_groupCallBar->setShadowGeometryPostprocess([=](QRect geometry) {
-			if (!one) {
-				geometry.setLeft(geometry.left() + st::lineWidth);
-			}
-			return geometry;
-		});
-	}, _groupCallBar->lifetime());
-
-	rpl::merge(
-		_groupCallBar->barClicks(),
-		_groupCallBar->joinClicks()
-	) | rpl::on_next([=] {
-		if (const auto peer = _history->peer; peer->groupCall()) {
-			_controller->startOrJoinGroupCall(peer, {});
-		}
-	}, _groupCallBar->lifetime());
-
-	_groupCallBarHeight = 0;
-	_groupCallBar->heightValue(
-	) | rpl::on_next([=](int height) {
-		if (height == _groupCallBarHeight) {
-			return;
-		}
-		const auto was = this->height();
-		_groupCallBarHeight = height;
-		updateLayout();
-		applyHeightChangeWithTopMoved(was, this->height());
-	}, _groupCallBar->lifetime());
 }
 
 void TopControls::setupRequestsBar() {
@@ -1103,7 +1057,6 @@ void TopControls::rebuildModeSensitiveBars() {
 		_paysStatusHeight = 0;
 		_businessBotStatusHeight = 0;
 		if (fullChat) {
-			setupGroupCallBar();
 			setupRequestsBar();
 		}
 	}

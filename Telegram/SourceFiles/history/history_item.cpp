@@ -3306,6 +3306,21 @@ void HistoryItem::markTextAppearingStarted() {
 	_flags |= MessageFlag::TextAppearingStarted;
 }
 
+void HistoryItem::markServerDeleted() {
+	if (_serverDeleted) {
+		return;
+	}
+	_serverDeleted = true;
+	auto text = TextWithEntities();
+	text.text = tr::lng_accountbank_deleted_marker(tr::now)
+		+ '\n'
+		+ originalText().text;
+	setText(std::move(text));
+	markContentsRead(false);
+	history()->owner().requestItemResize(this);
+	history()->updateChatListEntry();
+}
+
 void HistoryItem::setRealId(MsgId newId) {
 	Expects(isSending() || textAppearing());
 	Expects(IsClientMsgId(id));

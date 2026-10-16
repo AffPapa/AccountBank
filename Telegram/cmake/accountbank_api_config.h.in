@@ -1,0 +1,4 @@
+#pragma once
+
+#define TDESKTOP_API_ID @TDESKTOP_API_ID@
+#define TDESKTOP_API_HASH @TDESKTOP_API_HASH@

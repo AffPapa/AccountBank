@@ -221,7 +221,6 @@ private:
 
 	void addTopBarMenuButton();
 	[[nodiscard]] bool topBarMenuHasActions() const;
-	void addProfileCallsButton();
 	void showTopBarMenu();
 
 	const bool _isSeparatedWindow = false;

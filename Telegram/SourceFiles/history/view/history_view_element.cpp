@@ -755,6 +755,9 @@ QString DateTooltipText(not_null<Element*> view) {
 	if (const auto stars = item->out() ? item->starsPaid() : 0) {
 		dateText += '\n' + tr::lng_you_paid_stars(tr::now, lt_count, stars);
 	}
+	if (IsServerMsgId(item->fullId().msg)) {
+		dateText += u"\nID: %1"_q.arg(item->fullId().msg.bare);
+	}
 	return dateText;
 }
 

@@ -576,6 +576,25 @@ bool OpenTonConnectQuery(
 	return true;
 }
 
+bool OpenKnownUserById(
+		Window::SessionController *controller,
+		const Match &match,
+		const QVariant &context) {
+	if (!controller) {
+		return false;
+	}
+	bool valid = false;
+	const auto raw = match->captured(1).toULongLong(&valid);
+	if (!valid || !raw) {
+		return false;
+	}
+	if (const auto user = controller->session().data().userLoaded(UserId(raw))) {
+		controller->showPeerHistory(user);
+		return true;
+	}
+	return false;
+}
+
 bool ResolveUsernameOrPhone(
 		Window::SessionController *controller,
 		const Match &match,
@@ -1830,6 +1849,10 @@ const std::vector<LocalUrlHandler> &LocalUrlHandlers() {
 		{
 			u"^resolve/?\\?(.+)(#|$)"_q,
 			ResolveUsernameOrPhone
+		},
+		{
+			u"^user/?\\?id=([0-9]+)(&|$)"_q,
+			OpenKnownUserById
 		},
 		{
 			u"^privatepost/?\\?(.+)(#|$)"_q,

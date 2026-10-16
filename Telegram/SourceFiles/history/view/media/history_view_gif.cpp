@@ -244,15 +244,6 @@ Gif::Gif(
 
 	setStatusSize(Ui::FileStatusSizeReady);
 
-	if (_data->isVideoMessage()) {
-		_roundSeek = std::make_unique<VideoMessageSeek>([=] { repaint(); });
-		if (!media || !media->ttlSeconds()) {
-			_seekl = std::make_shared<VoiceSeekClickHandler>(
-				_data,
-				[](FullMsgId) {});
-		}
-	}
-
 	if (_spoiler) {
 		createSpoilerLink(_spoiler.get());
 	}
@@ -586,15 +577,7 @@ bool Gif::underCursor(bool fullFeatured) const {
 }
 
 bool Gif::autoplayEnabled() const {
-	if (_parent->context() == Context::MediaEditor) {
-		return false;
-	} else if (_realParent->isSponsored()) {
-		return true;
-	}
-	return Data::AutoDownload::ShouldAutoPlay(
-		_data->session().settings().autoDownload(),
-		_realParent->history()->peer,
-		_data);
+	return false;
 }
 
 bool Gif::autoplayEligible(bool fullFeatured) const {
@@ -1171,6 +1154,9 @@ void Gif::paintRoundPlaybackProgress(
 		const PaintContext &context,
 		QRect rthumb,
 		bool inTTLViewer) const {
+	if (!_roundSeek) {
+		return;
+	}
 	const auto playback = videoPlayback();
 	_roundSeek->paint(
 		p,
@@ -2046,12 +2032,14 @@ Gif::Action Gif::currentAction(bool fullFeatured) const {
 }
 
 ClickHandlerPtr Gif::currentVideoLink(bool fullFeatured) const {
+	const auto protectedMedia = !_realParent->allowsMediaDownloadControls()
+		|| _data->forbidsFileSave();
 	switch (currentAction(fullFeatured)) {
 	case Action::None: return nullptr;
 	case Action::Open:
 	case Action::Streaming: return _openl;
 	case Action::Cancel: return _cancell;
-	case Action::Download: return _savel;
+	case Action::Download: return protectedMedia ? _openl : _savel;
 	}
 	Unexpected("Action in Gif::currentVideoLink.");
 }
@@ -2449,7 +2437,9 @@ int Gif::surroundingHeight(
 }
 
 ::Media::Streaming::Instance *Gif::activeRoundStreamed() const {
-	return ::Media::Player::instance()->roundVideoStreamed(_parent->data());
+	return (_parent->delegate()->elementContext() == Context::TTLViewer)
+		? ::Media::Player::instance()->roundVideoStreamed(_parent->data())
+		: nullptr;
 }
 
 bool Gif::roundSeekShown() const {
@@ -2494,7 +2484,7 @@ Gif::Streamed *Gif::activeOwnStreamed() const {
 }
 
 ::Media::View::PlaybackProgress *Gif::videoPlayback() const {
-	return ::Media::Player::instance()->roundVideoPlayback(_parent->data());
+	return nullptr;
 }
 
 void Gif::playAnimation(bool autoplay) {

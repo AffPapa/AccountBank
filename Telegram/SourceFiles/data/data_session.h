@@ -52,6 +52,8 @@ class Data;
 
 namespace Data {
 
+class MessageArchive;
+
 class Folder;
 class LocationPoint;
 class WallPaper;
@@ -255,8 +257,6 @@ public:
 	void keepAlive(std::shared_ptr<PhotoMedia> media);
 	void keepAlive(std::shared_ptr<DocumentMedia> media);
 
-	void suggestStartExport(TimeId availableAt);
-	void clearExportSuggestion();
 
 	[[nodiscard]] auto passportCredentials() const
 	-> const Passport::SavedCredentials*;
@@ -395,6 +395,7 @@ public:
 	[[nodiscard]] rpl::producer<not_null<const ViewElement*>> viewLayoutChanged() const;
 	void notifyNewItemAdded(not_null<HistoryItem*> item);
 	[[nodiscard]] rpl::producer<not_null<HistoryItem*>> newItemAdded() const;
+	[[nodiscard]] MessageArchive &archive();
 	void notifyGiftUpdate(GiftUpdate &&update);
 	[[nodiscard]] rpl::producer<GiftUpdate> giftUpdates() const;
 	void notifyGiftsUpdate(GiftsUpdate &&update);
@@ -1043,7 +1044,6 @@ private:
 		mtpRequestId requestId = 0;
 	};
 
-	void suggestStartExport();
 
 	void setupMigrationViewer();
 	void setupChannelLeavingViewer();
@@ -1208,9 +1208,6 @@ private:
 	Storage::DatabasePointer _cache;
 	Storage::DatabasePointer _bigFileCache;
 
-	TimeId _exportAvailableAt = 0;
-	base::weak_qptr<Ui::BoxContent> _exportSuggestion;
-	rpl::lifetime _exportUnlockLifetime;
 
 	rpl::variable<bool> _contactsLoaded = false;
 	rpl::variable<int> _groupFreeTranscribeLevel;
@@ -1276,6 +1273,8 @@ private:
 		TimeId,
 		base::flat_set<not_null<HistoryItem*>>> _mediaDestroyMessages;
 	base::Timer _mediaDestroyCheckTimer;
+
+	std::unique_ptr<MessageArchive> _archive;
 
 	std::map<TimeId, std::vector<base::weak_ptr<HistoryView::Element>>> _formattedDateUpdates;
 	base::Timer _formattedDateTimer;

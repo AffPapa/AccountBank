@@ -57,14 +57,6 @@ Source SourceFromPeer(not_null<PeerData*> peer) {
 	}
 }
 
-Type AutoPlayTypeFromDocument(not_null<DocumentData*> document) {
-	return document->isVideoFile()
-		? Type::AutoPlayVideo
-		: document->isVideoMessage()
-		? Type::AutoPlayVideoMessage
-		: Type::AutoPlayGIF;
-}
-
 [[nodiscard]] int64 ForceAllowLimit(
 		const Full &data,
 		Source source,
@@ -89,18 +81,12 @@ Type AutoPlayTypeFromDocument(not_null<DocumentData*> document) {
 
 void SetDefaultsForSource(Full &data, Source source) {
 	data.setBytesLimit(source, Type::Photo, kDefaultMaxSize);
-	data.setBytesLimit(source, Type::VoiceMessage, kDefaultMaxSize);
-	data.setBytesLimit(
-		source,
-		Type::AutoPlayVideoMessage,
-		kDefaultAutoPlaySize);
-	data.setBytesLimit(source, Type::AutoPlayGIF, kDefaultAutoPlaySize);
-	const auto channelsFileLimit = (source == Source::Channel)
-		? 0
-		: kDefaultMaxSize;
-	data.setBytesLimit(source, Type::File, channelsFileLimit);
-	data.setBytesLimit(source, Type::AutoPlayVideo, kDefaultAutoPlaySize);
-	data.setBytesLimit(source, Type::Music, channelsFileLimit);
+	// AccountBank loads documents only after an explicit user action.
+	for (const auto type : enums_view<Type>(kTypesCount)) {
+		if (type != Type::Photo) {
+			data.setBytesLimit(source, type, 0);
+		}
+	}
 }
 
 void SetDisabledForSource(Full &data, Source source) {
@@ -353,54 +339,22 @@ bool Should(
 		const Full &data,
 		Source source,
 		not_null<DocumentData*> document) {
-	if (document->sticker() || document->isGifv()) {
-		return true;
-	} else if (document->isVoiceMessage()
-		|| document->isVideoMessage()
-		|| document->isSong()
-		|| document->isVideoFile()) {
-		return false;
-	}
-	return data.shouldDownload(source, Type::File, document->size);
+	// Sticker files also supply incoming custom emoji and reaction icons.
+	// Keep them available while all other documents stay manual.
+	return document->sticker() != nullptr;
 }
 
 bool Should(
 		const Full &data,
 		not_null<PeerData*> peer,
 		not_null<DocumentData*> document) {
-	if (document->sticker()) {
-		return true;
-	}
-	const auto override = data.peerOverride(peer->id);
-	if (override == Override::ForceDeny) {
-		return false;
-	} else if (document->isGifv()) {
-		return true;
-	} else if (override == Override::ForceAllow) {
-		if (document->isVoiceMessage()
-			|| document->isVideoMessage()
-			|| document->isSong()
-			|| document->isVideoFile()) {
-			return false;
-		}
-		return ForceAllowed(
-			data,
-			SourceFromPeer(peer),
-			Type::File,
-			document->size);
-	}
-	return Should(data, SourceFromPeer(peer), document);
+	return document->sticker() != nullptr;
 }
 
 bool Should(
 		const Full &data,
 		not_null<DocumentData*> document) {
-	if (document->sticker()) {
-		return true;
-	}
-	return Should(data, Source::User, document)
-		|| Should(data, Source::Group, document)
-		|| Should(data, Source::Channel, document);
+	return document->sticker() != nullptr;
 }
 
 bool Should(
@@ -427,46 +381,14 @@ bool ShouldAutoPlay(
 		const Full &data,
 		not_null<PeerData*> peer,
 		not_null<DocumentData*> document) {
-	if (document->sticker()) {
-		return true;
-	}
-	const auto override = data.peerOverride(peer->id);
-	if (override == Override::ForceDeny) {
-		return false;
-	} else if (override == Override::ForceAllow) {
-		return ForceAllowed(
-			data,
-			SourceFromPeer(peer),
-			AutoPlayTypeFromDocument(document),
-			document->size);
-	}
-	return data.shouldDownload(
-		SourceFromPeer(peer),
-		AutoPlayTypeFromDocument(document),
-		document->size);
+	return false;
 }
 
 bool ShouldAutoPlay(
 		const Full &data,
 		not_null<PeerData*> peer,
 		not_null<PhotoData*> photo) {
-	if (!photo->hasVideo()) {
-		return false;
-	}
-	const auto override = data.peerOverride(peer->id);
-	if (override == Override::ForceDeny) {
-		return false;
-	}
-	const auto source = SourceFromPeer(peer);
-	const auto size = photo->videoByteSize(PhotoSize::Large);
-	if (override == Override::ForceAllow) {
-		return ForceAllowed(data, source, Type::AutoPlayGIF, size)
-			|| ForceAllowed(data, source, Type::AutoPlayVideo, size)
-			|| ForceAllowed(data, source, Type::AutoPlayVideoMessage, size);
-	}
-	return data.shouldDownload(source, Type::AutoPlayGIF, size)
-		|| data.shouldDownload(source, Type::AutoPlayVideo, size)
-		|| data.shouldDownload(source, Type::AutoPlayVideoMessage, size);
+	return false;
 }
 
 Full WithDisabledAutoPlay(const Full &data) {

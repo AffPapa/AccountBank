@@ -1091,7 +1091,6 @@ MediaFile::MediaFile(
 , _ttlSeconds(args.ttlSeconds)
 , _emoji(document->sticker() ? document->sticker()->alt : QString())
 , _videoTimestamp(args.videoTimestamp)
-, _skipPremiumEffect(args.skipPremiumEffect)
 , _hasQualitiesList(args.hasQualitiesList)
 , _spoiler(args.spoiler) {
 	parent->history()->owner().registerDocumentItem(_document, parent);
@@ -1479,13 +1478,25 @@ std::unique_ptr<HistoryView::Media> MediaFile::createView(
 		not_null<HistoryItem*> realParent,
 		HistoryView::Element *replacing) {
 	if (_document->sticker()) {
-		return std::make_unique<HistoryView::UnwrappedMedia>(
+		// Keep the original document and message data for forwarding. Only the
+		// view changes: no sticker media, thumbnail or animation is requested.
+		const auto label = _emoji.isEmpty()
+			? tr::lng_in_dlg_sticker(tr::now)
+			: tr::lng_in_dlg_sticker_emoji(tr::now, lt_emoji, _emoji);
+		return std::make_unique<HistoryView::MediaGeneric>(
 			message,
-			std::make_unique<HistoryView::Sticker>(
-				message,
-				_document,
-				_skipPremiumEffect,
-				replacing));
+			[label](not_null<HistoryView::MediaGeneric*>,
+					Fn<void(std::unique_ptr<HistoryView::MediaGeneric::Part>)> push) {
+				push(std::make_unique<HistoryView::MediaGenericTextPart>(
+					TextWithEntities{
+						u"["_q + label + u"]"_q,
+					},
+					st::msgPadding));
+			},
+			HistoryView::MediaGenericDescriptor{
+				.minWidth = st::msgMinWidth,
+				.fitToContent = true,
+			});
 	} else if (_document->isVideoMessage()) {
 		const auto &entry = _document->session().api().transcribes().entry(
 			parent());

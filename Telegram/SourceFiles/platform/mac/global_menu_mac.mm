@@ -150,6 +150,9 @@ void SendKeySequence(
 }
 
 void ForceDisabled(QAction *action, bool disabled) {
+	if (!action) {
+		return;
+	}
 	if (action->isEnabled()) {
 		if (disabled) action->setDisabled(true);
 	} else if (!disabled) {
@@ -194,7 +197,7 @@ void Manager::retranslate() {
 		_newChannel->setText(tr::lng_mac_menu_new_channel(tr::now));
 	}
 	if (_showTelegram) {
-		_showTelegram->setText(tr::lng_mac_menu_show(tr::now));
+		_showTelegram->setText(u"Show AccountBank"_q);
 	}
 	if (_fullScreen) {
 		_fullScreen->setText(tr::lng_mac_menu_fullscreen(tr::now));
@@ -355,7 +358,7 @@ void Manager::buildAppleMenu(QMenu *main) {
 			});
 		};
 		const auto about = main->addAction(
-			u"About Telegram"_q,
+			u"About AccountBank"_q,
 			std::move(callback));
 		about->setMenuRole(QAction::AboutQtRole);
 	}
@@ -434,66 +437,6 @@ void Manager::buildEditMenu(QMenu *edit) {
 	_delete->setShortcutContext(Qt::WidgetShortcut);
 
 	edit->addSeparator();
-	_bold = edit->addAction(
-		u"Bold"_q,
-		receiver,
-		[] { SendKeySequence(Qt::Key_B, Qt::ControlModifier); },
-		QKeySequence::Bold);
-	_bold->setShortcutContext(Qt::WidgetShortcut);
-	_italic = edit->addAction(
-		u"Italic"_q,
-		receiver,
-		[] { SendKeySequence(Qt::Key_I, Qt::ControlModifier); },
-		QKeySequence::Italic);
-	_italic->setShortcutContext(Qt::WidgetShortcut);
-	_underline = edit->addAction(
-		u"Underline"_q,
-		receiver,
-		[] { SendKeySequence(Qt::Key_U, Qt::ControlModifier); },
-		QKeySequence::Underline);
-	_underline->setShortcutContext(Qt::WidgetShortcut);
-	_strikeOut = edit->addAction(
-		u"Strikethrough"_q,
-		receiver,
-		[] {
-			SendKeySequence(
-				Qt::Key_X,
-				Qt::ControlModifier | Qt::ShiftModifier);
-		},
-		Ui::kStrikeOutSequence);
-	_strikeOut->setShortcutContext(Qt::WidgetShortcut);
-	_blockquote = edit->addAction(
-		u"Quote"_q,
-		receiver,
-		[] {
-			SendKeySequence(
-				Qt::Key_Period,
-				Qt::ControlModifier | Qt::ShiftModifier);
-		},
-		Ui::kBlockquoteSequence);
-	_blockquote->setShortcutContext(Qt::WidgetShortcut);
-	_monospace = edit->addAction(
-		u"Monospace"_q,
-		receiver,
-		[] {
-			SendKeySequence(
-				Qt::Key_M,
-				Qt::ControlModifier | Qt::ShiftModifier);
-		},
-		Ui::kMonospaceSequence);
-	_monospace->setShortcutContext(Qt::WidgetShortcut);
-	_clearFormat = edit->addAction(
-		u"Clear formatting"_q,
-		receiver,
-		[] {
-			SendKeySequence(
-				Qt::Key_N,
-				Qt::ControlModifier | Qt::ShiftModifier);
-		},
-		Ui::kClearFormatSequence);
-	_clearFormat->setShortcutContext(Qt::WidgetShortcut);
-
-	edit->addSeparator();
 	_selectAll = edit->addAction(
 		u"Select All"_q,
 		receiver,
@@ -501,17 +444,6 @@ void Manager::buildEditMenu(QMenu *edit) {
 		QKeySequence::SelectAll);
 	_selectAll->setShortcutContext(Qt::WidgetShortcut);
 
-	if (!Platform::IsMac26_0OrGreater()) {
-		edit->addSeparator();
-		_emoji = edit->addAction(
-			u"Emoji & Symbols"_q,
-			receiver,
-			[] { [NSApp orderFrontCharacterPalette:nil]; },
-			QKeySequence(Qt::MetaModifier
-				| Qt::ControlModifier
-				| Qt::Key_Space));
-		_emoji->setShortcutContext(Qt::WidgetShortcut);
-	}
 }
 
 void Manager::buildWindowMenu(QMenu *window) {
@@ -530,66 +462,8 @@ void Manager::buildWindowMenu(QMenu *window) {
 		QKeySequence(Qt::MetaModifier | Qt::ControlModifier | Qt::Key_F));
 	_fullScreen->setShortcutContext(Qt::WidgetShortcut);
 	window->addSeparator();
-
-	_contacts = window->addAction(u"Contacts"_q);
-	QObject::connect(_contacts, &QAction::triggered, _contacts, [this] {
-		withActiveWindow([](not_null<Window::Controller*> w) {
-			const auto sc = w->sessionController();
-			if (!sc || w->locked()) {
-				return;
-			}
-			sc->show(PrepareContactsBox(sc));
-		});
-	});
-	{
-		auto callback = [this] {
-			withActiveWindow([](not_null<Window::Controller*> w) {
-				const auto sc = w->sessionController();
-				if (!sc || w->locked()) {
-					return;
-				}
-				sc->showAddContact();
-			});
-		};
-		_addContact = window->addAction(
-			u"Add Contact"_q,
-			receiver,
-			std::move(callback));
-	}
-	window->addSeparator();
-	{
-		auto callback = [this] {
-			withActiveWindow([](not_null<Window::Controller*> w) {
-				const auto sc = w->sessionController();
-				if (!sc || w->locked()) {
-					return;
-				}
-				sc->showNewGroup();
-			});
-		};
-		_newGroup = window->addAction(
-			u"New Group"_q,
-			receiver,
-			std::move(callback));
-	}
-	{
-		auto callback = [this] {
-			withActiveWindow([](not_null<Window::Controller*> w) {
-				const auto sc = w->sessionController();
-				if (!sc || w->locked()) {
-					return;
-				}
-				sc->showNewChannel();
-			});
-		};
-		_newChannel = window->addAction(
-			u"New Channel"_q,
-			receiver,
-			std::move(callback));
-	}
-	window->addSeparator();
 	_showTelegram = window->addAction(
-		u"Show Telegram"_q,
+		u"Show AccountBank"_q,
 		receiver,
 		[this] {
 			if (const auto w = resolveActiveWindow()) {
@@ -599,7 +473,7 @@ void Manager::buildWindowMenu(QMenu *window) {
 }
 
 void Manager::buildMenu() {
-	buildAppleMenu(_menuBar->addMenu(u"Telegram"_q));
+	buildAppleMenu(_menuBar->addMenu(u"AccountBank"_q));
 	buildFileMenu(_menuBar->addMenu(u"File"_q));
 	buildEditMenu(_menuBar->addMenu(u"Edit"_q));
 	buildWindowMenu(_menuBar->addMenu(u"Window"_q));

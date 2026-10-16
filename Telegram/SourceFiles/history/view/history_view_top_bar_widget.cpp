@@ -1412,34 +1412,9 @@ void TopBarWidget::updateControlsVisibility() {
 		&& !isOneColumn
 		&& _controller->canShowThirdSection()
 		&& !_chooseForReportReason);
-	const auto callsEnabled = [&] {
-		if (const auto peer = _activeChat.key.peer()) {
-			if (const auto user = peer->asUser()) {
-				return !user->isSelf()
-					&& !user->isBot()
-					&& !user->isInaccessible()
-					&& !peer->isServiceUser();
-			}
-		}
-		return false;
-	}();
-	_call->setVisible(historyMode
-		&& callsEnabled
-		&& !_chooseForReportReason);
-	const auto groupCallsEnabled = [&] {
-		if (const auto peer = _activeChat.key.peer()) {
-			if (!peer->isUser() && peer->canManageGroupCall()) {
-				return true;
-			} else if (const auto call = peer->groupCall()) {
-				return (call->fullCount() == 0);
-			}
-			return false;
-		}
-		return false;
-	}();
-	_groupCall->setVisible(historyMode
-		&& groupCallsEnabled
-		&& !_chooseForReportReason);
+	// AccountBank focuses the chat header on reading and messaging.
+	_call->setVisible(false);
+	_groupCall->setVisible(false);
 
 	if (_membersShowArea) {
 		_membersShowArea->setVisible(!_chooseForReportReason);

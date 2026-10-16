@@ -38,7 +38,7 @@ void SetupDefaultThemes(
 void SetupSupport(
 	not_null<Window::SessionController*> controller,
 	not_null<Ui::VerticalLayout*> container);
-void SetupExport(
+void SetupExperimental(
 	not_null<Window::SessionController*> controller,
 	not_null<Ui::VerticalLayout*> container,
 	Fn<void(Type)> showOther);

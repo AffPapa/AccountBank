@@ -19,12 +19,16 @@ endif()
 project(Telegram
     LANGUAGES C CXX
     VERSION ${desktop_app_version_cmake}
-    DESCRIPTION "Official Telegram Desktop messenger"
-    HOMEPAGE_URL "https://desktop.telegram.org"
+    DESCRIPTION "AccountBank unofficial messaging client"
+    HOMEPAGE_URL "https://github.com/AffPapa/AccountBank"
 )
 
 if (APPLE)
     enable_language(OBJC OBJCXX)
+    # AccountBank does not offer the macOS on-device translation UI. Keep
+    # fresh Release configurations free of the Swift 6 runtime dependency.
+    set(DESKTOP_APP_DISABLE_SWIFT6 ON CACHE BOOL
+        "Disable local on-device translation in AccountBank." FORCE)
 endif()
 
 if (configuration_types_init
@@ -44,6 +48,13 @@ if (NOT DESKTOP_APP_USE_PACKAGED AND WIN32)
 endif()
 
 include(cmake/variables.cmake)
+# Optional, ignored local API credentials. Keep them out of command lines and Git.
+include("${CMAKE_CURRENT_SOURCE_DIR}/accountbank-api.local.cmake" OPTIONAL)
+# AccountBank must never launch Telegram Desktop's upstream updater. A build
+# configured with a special target may otherwise enable it by default.
+if (NOT DESKTOP_APP_DISABLE_AUTOUPDATE)
+    message(FATAL_ERROR "AccountBank requires DESKTOP_APP_DISABLE_AUTOUPDATE=ON")
+endif()
 include(cmake/nice_target_sources.cmake)
 include(cmake/target_compile_options_if_exists.cmake)
 include(cmake/target_link_frameworks.cmake)

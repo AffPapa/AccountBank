@@ -86,7 +86,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "storage/storage_folder_archive.h"
 #include "storage/localstorage.h"
 #include "payments/payments_checkout_process.h"
-#include "export/export_manager.h"
 #include "wallet/wallet_panel.h"
 #include "webrtc/webrtc_environment.h"
 #include "window/window_saved_windows.h"
@@ -173,7 +172,6 @@ Application::Application()
 	std::make_unique<MTP::Config>(MTP::Environment::Production))
 , _downloadManager(std::make_unique<Data::DownloadManager>())
 , _domain(std::make_unique<Main::Domain>(cDataFile()))
-, _exportManager(std::make_unique<Export::Manager>())
 , _calls(std::make_unique<Calls::Instance>())
 , _iv(std::make_unique<Iv::Instance>(
 	Ui::CreateChild<Iv::DelegateImpl>(this)))
@@ -436,6 +434,9 @@ void Application::run() {
 	DEBUG_LOG(("Application Info: window created..."));
 
 	startDomain();
+	if (Quitting()) {
+		return;
+	}
 	startTray();
 
 	_lastActivePrimaryWindow->firstShow();
@@ -543,6 +544,9 @@ void Application::showOpenGLCrashNotification() {
 
 void Application::startDomain() {
 	const auto state = _domain->start(QByteArray());
+	if (state == Storage::StartResult::Failed) {
+		return; // The storage error was shown and shutdown requested.
+	}
 	if (state != Storage::StartResult::IncorrectPasscodeLegacy) {
 		// In case of non-legacy passcoded app all global settings are ready.
 		startSettingsAndBackground();
@@ -1029,8 +1033,6 @@ void Application::logoutWithChecks(Main::Account *account) {
 	};
 	if (!account || !account->sessionExists()) {
 		logout(account);
-	} else if (_exportManager->inProgress(&account->session())) {
-		_exportManager->stopWithConfirmation(retry);
 	} else if (account->session().uploadsInProgress()) {
 		account->session().uploadsStopWithConfirmation(retry);
 	} else if (_downloadManager->loadingInProgress(&account->session())) {
@@ -1137,16 +1139,6 @@ Main::Session *Application::maybePrimarySession() const {
 	return _domain->started() ? activeAccount().maybeSession() : nullptr;
 }
 
-bool Application::exportPreventsQuit() {
-	if (_exportManager->inProgress()) {
-		_exportManager->stopWithConfirmation([] {
-			Quit();
-		});
-		return true;
-	}
-	return false;
-}
-
 bool Application::uploadPreventsQuit() {
 	if (!_domain->started()) {
 		return false;
@@ -1179,8 +1171,7 @@ bool Application::downloadPreventsQuit() {
 }
 
 bool Application::preventsQuit(QuitReason reason) {
-	if (exportPreventsQuit()
-		|| uploadPreventsQuit()
+	if (uploadPreventsQuit()
 		|| downloadPreventsQuit()) {
 		return true;
 	} else if ((!_mediaView

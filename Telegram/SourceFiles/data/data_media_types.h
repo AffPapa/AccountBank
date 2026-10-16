@@ -416,7 +416,6 @@ private:
 
 	QString _emoji;
 	TimeId _videoTimestamp = 0;
-	bool _skipPremiumEffect = false;
 	bool _hasQualitiesList = false;
 	bool _spoiler = false;
 

@@ -275,6 +275,20 @@ void ResolveDocument(
 			showDocument();
 		}
 	} else {
+		if (item && !item->allowsMediaDownloadControls()) {
+			// Generic files have no protected in-app reader. Never fall through
+			// to Save(ToFile) or an external launcher for restricted content.
+			if (document->isVideoFile()
+				|| document->isVideoMessage()
+				|| document->isAnimation()
+				|| document->isImage()) {
+				showDocument();
+			} else if (controller) {
+				controller->showToast(
+					u"Protected file cannot be opened externally."_q);
+			}
+			return;
+		}
 		document->saveFromDataSilent();
 		const auto image = CheckImageOpenInApp(
 			document,

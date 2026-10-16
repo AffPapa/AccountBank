@@ -1,4 +1,7 @@
 /out/
+/out-release/
+/out-size-oz/
+/out-size-os/
 Debug/
 Release/
 /ThirdParty/
@@ -59,6 +62,7 @@ cmake-build-debug/
 *.qsb
 
 # Local configuration files
+/accountbank-api.local.cmake
 settings.local.json
 *.local.json
 .env

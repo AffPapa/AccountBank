@@ -103,6 +103,7 @@ public:
 	[[nodiscard]] QString sectionPath(
 		Type sectionId,
 		bool parentsOnly = false) const;
+	[[nodiscard]] bool isWithin(Type sectionId, Type ancestorId) const;
 
 private:
 	std::vector<SearchIndexerEntry> _indexers;

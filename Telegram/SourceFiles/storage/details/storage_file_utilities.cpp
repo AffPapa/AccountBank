@@ -666,7 +666,8 @@ bool FileWriteDescriptor::finish() {
 bool ReadFile(
 		FileReadDescriptor &result,
 		const QString &name,
-		const QString &basePath) {
+		const QString &basePath,
+		bool pruneAlternate) {
 	const auto base = basePath + name;
 
 	// detect order of read attempts
@@ -765,7 +766,8 @@ bool ReadFile(
 		result.stream.setDevice(&result.buffer);
 		result.stream.setVersion(QDataStream::Qt_5_1);
 
-		if ((i == 0 && !toTry[1].isEmpty()) || i == 1) {
+		if (pruneAlternate
+			&& ((i == 0 && !toTry[1].isEmpty()) || i == 1)) {
 			QFile::remove(toTry[1 - i]);
 		}
 
@@ -817,8 +819,9 @@ bool ReadEncryptedFile(
 		FileReadDescriptor &result,
 		const QString &name,
 		const QString &basePath,
-		const MTP::AuthKeyPtr &key) {
-	if (!ReadFile(result, name, basePath)) {
+		const MTP::AuthKeyPtr &key,
+		bool pruneAlternate) {
+	if (!ReadFile(result, name, basePath, pruneAlternate)) {
 		return false;
 	}
 	QByteArray encrypted;

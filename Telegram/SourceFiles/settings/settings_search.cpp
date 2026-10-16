@@ -17,6 +17,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "settings/settings_common.h"
 #include "settings/settings_faq_suggestions.h"
 #include "settings/settings_recent_searches.h"
+#include "settings/sections/settings_advanced.h"
+#include "settings/sections/settings_main.h"
+#include "settings/sections/settings_notifications.h"
+#include "settings/sections/settings_privacy_security.h"
 #include "ui/painter.h"
 #include "ui/text/text_entity.h"
 #include "ui/toast/toast.h"
@@ -253,6 +257,12 @@ void Search::buildIndex() {
 
 	_entries.reserve(rawEntries.size());
 	for (const auto &entry : rawEntries) {
+		if (entry.section != MainId()
+			&& !registry.isWithin(entry.section, NotificationsId())
+			&& !registry.isWithin(entry.section, PrivacySecurityId())
+			&& !registry.isWithin(entry.section, AdvancedId())) {
+			continue;
+		}
 		const auto index = int(_entries.size());
 		auto indexed = IndexedEntry{
 			.entry = entry,
@@ -266,21 +276,6 @@ void Search::buildIndex() {
 	}
 
 	_faqStartIndex = int(_entries.size());
-
-	const auto &faq = controller()->session().faqSuggestions();
-	for (const auto &faqEntry : faq.entries()) {
-		auto entry = Builder::SearchEntry{
-			.title = faqEntry.title,
-		};
-		auto indexed = IndexedEntry{
-			.entry = std::move(entry),
-			.terms = TextUtilities::PrepareSearchWords(faqEntry.title),
-			.depth = 1000,
-			.faqUrl = faqEntry.url,
-			.faqSection = faqEntry.section,
-		};
-		_entries.push_back(std::move(indexed));
-	}
 
 	for (auto i = 0; i < int(_entries.size()); ++i) {
 		for (const auto &term : _entries[i].terms) {

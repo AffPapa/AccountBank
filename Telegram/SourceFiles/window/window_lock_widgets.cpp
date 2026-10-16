@@ -124,14 +124,10 @@ PasscodeLockWidget::PasscodeLockWidget(
 	not_null<Controller*> window)
 : LockWidget(parent, window)
 , _passcode(this, st::passcodeInput, tr::lng_passcode_ph())
-, _submit(this, tr::lng_passcode_submit(), st::passcodeSubmit)
-, _logout(this, tr::lng_passcode_logout(tr::now)) {
+, _submit(this, tr::lng_passcode_submit(), st::passcodeSubmit) {
 	connect(_passcode, &Ui::MaskedInputField::changed, [=] { changed(); });
 	connect(_passcode, &Ui::MaskedInputField::submitted, [=] { submit(); });
 	_submit->setClickedCallback([=] { submit(); });
-	_logout->setClickedCallback([=] {
-		window->showLogoutConfirmation();
-	});
 
 	using namespace rpl::mappers;
 	if (Core::App().settings().systemUnlockEnabled()) {
@@ -173,14 +169,14 @@ void PasscodeLockWidget::setupSystemUnlockInfo() {
 		this,
 		std::move(text),
 		st::passcodeSystemUnlockLater);
-	_logout->geometryValue(
-	) | rpl::on_next([=](QRect logout) {
+	_submit->geometryValue(
+	) | rpl::on_next([=](QRect submit) {
 		info->resizeToWidth(width()
 			- st::boxRowPadding.left()
 			- st::boxRowPadding.right());
 		info->moveToLeft(
 			st::boxRowPadding.left(),
-			logout.y() + logout.height() + st::passcodeSystemUnlockSkip);
+			submit.y() + submit.height() + st::passcodeSystemUnlockSkip);
 	}, info->lifetime());
 	info->showOn(_systemUnlockAvailable.value(
 	) | rpl::map(rpl::mappers::_1 != SystemUnlockType::None));
@@ -337,7 +333,6 @@ void PasscodeLockWidget::changed() {
 void PasscodeLockWidget::resizeEvent(QResizeEvent *e) {
 	_passcode->move((width() - _passcode->width()) / 2, (height() / 3));
 	_submit->move(_passcode->x(), _passcode->y() + _passcode->height() + st::passcodeSubmitSkip);
-	_logout->move(_passcode->x() + (_passcode->width() - _logout->width()) / 2, _submit->y() + _submit->height() + st::linkFont->ascent);
 }
 
 void PasscodeLockWidget::setInnerFocus() {

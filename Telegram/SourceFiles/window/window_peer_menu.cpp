@@ -12,7 +12,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "menu/menu_mark_as_read.h"
 #include "boxes/about_box.h"
 #include "boxes/share_box.h"
-#include "boxes/star_gift_box.h"
 #include "chat_helpers/compose/compose_show.h"
 #include "chat_helpers/message_field.h"
 #include "chat_helpers/share_message_phrase_factory.h"
@@ -122,7 +121,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "dialogs/dialogs_key.h"
 #include "core/application.h"
 #include "core/ui_integration.h"
-#include "export/export_manager.h"
 #include "boxes/peers/edit_participants_box.h"
 #include "boxes/peers/edit_peer_info_box.h"
 #include "boxes/peers/manage_community_box.h"
@@ -329,7 +327,6 @@ private:
 	void addViewDiscussion();
 	void addDirectMessages();
 	void addToggleTopicClosed();
-	void addExportChat();
 	void addTranslate();
 	void addReport();
 	void addNewContact();
@@ -339,7 +336,6 @@ private:
 	void addNewMembers();
 	void addDeleteContact();
 	void addTTLSubmenu(bool addSeparator);
-	void addSendGift();
 	void addSendMoney();
 	void addCreateTopic();
 	void addViewAsMessages();
@@ -1060,26 +1056,6 @@ void Filler::addDirectMessages() {
 	}, &st::menuIconChatDiscuss);
 }
 
-void Filler::addExportChat() {
-	if (!_peer->canExportChatHistory()) {
-		return;
-	}
-	const auto peer = _peer;
-	const auto navigation = _controller;
-	if (const auto topic = _thread->asTopic()) {
-		const auto topicRootId = topic->rootId();
-		_addAction(
-			tr::lng_profile_export_topic(tr::now),
-			[=] { PeerMenuExportTopic(navigation, peer, topicRootId); },
-			&st::menuIconExport);
-		return;
-	}
-	_addAction(
-		tr::lng_profile_export_chat(tr::now),
-		[=] { PeerMenuExportChat(navigation, peer); },
-		&st::menuIconExport);
-}
-
 void Filler::addTranslate() {
 	if (_peer->translationFlag() != PeerData::TranslationFlag::Disabled
 		|| !_peer->session().premium()
@@ -1671,33 +1647,6 @@ void Filler::addTTLSubmenu(bool addSeparator) {
 	}
 }
 
-void Filler::addSendGift() {
-	const auto user = _peer->asUser();
-	const auto channel = _peer->asBroadcast();
-	if (!user && !channel) {
-		return;
-	} else if (user
-		&& (user->isInaccessible()
-			|| user->isSelf()
-			|| user->isBot()
-			|| user->isServiceUser()
-			|| user->isNotificationsUser()
-			|| user->isRepliesChat()
-			|| user->isVerifyCodes()
-			|| !user->session().premiumCanBuy())) {
-		return;
-	} else if (channel
-		&& (channel->isForbidden() || !channel->stargiftsAvailable())) {
-		return;
-	}
-
-	const auto peer = _peer;
-	const auto navigation = _controller;
-	_addAction(tr::lng_profile_gift_premium(tr::now), [=] {
-		Ui::ShowStarGiftBox(navigation, peer);
-	}, &st::menuIconGiftPremium);
-}
-
 void Filler::addSendMoney() {
 	if (const auto user = _peer->asUser()) {
 		AddSendMoneyAction(_controller, user, _addAction);
@@ -1869,8 +1818,6 @@ void Filler::fillChatsListActions() {
 	}
 	addManageChat();
 	addNewMembers();
-	addBoostChat();
-	addVideoChat();
 	_addAction(PeerMenuCallback::Args{ .isSeparator = true });
 	addReport();
 	if (_peer->asChannel()->amIn()) {
@@ -1940,17 +1887,10 @@ void Filler::fillHistoryActions() {
 	addInfo();
 	addViewAsTopics();
 	addManageChat();
-	addStoryArchive();
 	addSupportInfo();
-	addBoostChat();
-	addCreatePoll();
-	addCreateTodoList();
-	addThemeEdit();
 	addToggleNoForwards();
 	addViewDiscussion();
 	addDirectMessages();
-	addExportChat();
-	addTranslate();
 	addReport();
 	addClearHistory();
 	addDeleteChat();
@@ -1965,18 +1905,12 @@ void Filler::fillProfileActions() {
 	addEditContact();
 	addBotToGroup();
 	addNewMembers();
-	addSendGift();
-	addSendMoney();
-	addViewStatistics();
-	addStoryArchive();
 	addManageChat();
-	addSetPersonalChannel();
 	addTopicLink();
 	addManageTopic();
 	addToggleTopicClosed();
 	addViewDiscussion();
 	addDirectMessages();
-	addExportChat();
 	addToggleNoForwards();
 	addToggleFolder();
 	addBlockUser();
@@ -1992,16 +1926,11 @@ void Filler::fillRepliesActions() {
 		addInfo();
 		addManageTopic();
 	}
-	addBoostChat();
-	addCreatePoll();
-	addCreateTodoList();
 	addToggleTopicClosed();
 	addDeleteTopic();
 }
 
 void Filler::fillScheduledActions() {
-	addCreatePoll();
-	addCreateTodoList();
 }
 
 void Filler::fillWelcomeMessagesActions() {
@@ -2189,25 +2118,6 @@ void Filler::addSetPersonalChannel() {
 }
 
 } // namespace
-
-void PeerMenuExportChat(
-		not_null<Window::SessionController*> controller,
-		not_null<PeerData*> peer) {
-	base::call_delayed(st::defaultPopupMenu.showDuration, [=] {
-		Core::App().exportManager().start(peer);
-	});
-}
-
-void PeerMenuExportTopic(
-		not_null<Window::SessionNavigation*> navigation,
-		not_null<PeerData*> peer,
-		MsgId topicRootId) {
-	base::call_delayed(st::defaultPopupMenu.showDuration, [=] {
-		const auto topic = peer->forumTopicFor(topicRootId);
-		const auto topicTitle = topic ? topic->title() : QString();
-		Core::App().exportManager().startTopic(peer, topicRootId, topicTitle);
-	});
-}
 
 void PeerMenuDeleteContact(
 		not_null<Window::SessionController*> controller,

@@ -33,11 +33,6 @@ template <typename Widget>
 class SlideWrap;
 } // namespace Ui
 
-namespace Info::Profile {
-class Badge;
-class EmojiStatusPanel;
-} // namespace Info::Profile
-
 namespace Main {
 class Account;
 } // namespace Main
@@ -61,25 +56,20 @@ private:
 	bool eventHook(QEvent *event) override;
 	void paintEvent(QPaintEvent *e) override;
 	void resizeEvent(QResizeEvent *e) override;
-	void hideEvent(QHideEvent *e) override;
 
 	void doSetInnerFocus() override {
 		setFocus();
 	}
 
-	void moveBadge();
 	void setupUserpicButton();
 	void setupAccounts();
 	void setupAccountsToggle();
-	void setupSetEmojiStatus();
-	void setupEmojiStatusDismiss();
 	void setupArchive();
 	void setupMenu();
 	void updateControlsGeometry();
 	void updateInnerControlsGeometry();
 	void initResetScaleButton();
 	void toggleAccounts();
-	void chooseEmojiStatus();
 	void setupSwipe();
 
 	[[nodiscard]] base::EventFilterResult redirectToInnerChecked(
@@ -92,9 +82,6 @@ private:
 	Ui::Text::String _name;
 	int _nameVersion = 0;
 	object_ptr<ToggleAccountsButton> _toggleAccounts;
-	object_ptr<Ui::FlatLabel> _setEmojiStatus;
-	std::unique_ptr<Info::Profile::EmojiStatusPanel> _emojiStatusPanel;
-	std::unique_ptr<Info::Profile::Badge> _badge;
 	object_ptr<ResetScaleButton> _resetScaleButton = { nullptr };
 	object_ptr<Ui::ScrollArea> _scroll;
 	not_null<Ui::VerticalLayout*> _inner;
@@ -112,9 +99,7 @@ private:
 
 	Ui::Controls::SwipeBackResult _swipeBackData;
 
-	rpl::variable<bool> _showFinished = false;
 	bool _insideEventRedirect = false;
-	bool _emojiStatusDismissSetup = false;
 
 };
 

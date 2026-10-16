@@ -27,7 +27,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/update_checker.h"
 #include "data/data_auto_download.h"
 #include "data/data_session.h"
-#include "export/export_manager.h"
 #include "info/downloads/info_downloads_widget.h"
 #include "info/info_memento.h"
 #include "lang/lang_keys.h"
@@ -917,26 +916,6 @@ void BuildPerformanceSection(SectionBuilder &builder) {
 		.keywords = { u"power"_q, u"saving"_q, u"battery"_q, u"animation"_q },
 	});
 
-	const auto hwAccel = builder.addButton({
-		.id = u"advanced/hw_accel"_q,
-		.title = tr::lng_settings_enable_hwaccel(),
-		.st = &st::settingsButtonNoIcon,
-		.toggled = rpl::single(
-			Core::App().settings().hardwareAcceleratedVideo()),
-		.keywords = { u"hardware"_q, u"acceleration"_q, u"video"_q },
-	});
-
-	if (hwAccel) {
-		hwAccel->toggledValue(
-		) | rpl::filter([](bool enabled) {
-			return (enabled !=
-				Core::App().settings().hardwareAcceleratedVideo());
-		}) | rpl::on_next([=](bool enabled) {
-			Core::App().settings().setHardwareAcceleratedVideo(enabled);
-			Core::App().saveSettingsDelayed();
-		}, hwAccel->lifetime());
-	}
-
 #ifdef DESKTOP_APP_USE_ANGLE
 	BuildANGLEOption(builder);
 #else
@@ -1253,37 +1232,6 @@ void BuildUpdateSection(SectionBuilder &builder, bool atTop) {
 	}
 }
 
-void BuildExportSection(SectionBuilder &builder) {
-	const auto controller = builder.controller();
-	const auto session = builder.session();
-	const auto showOther = builder.showOther();
-	builder.addSkip();
-	builder.addDivider();
-	builder.addSkip();
-
-	builder.addButton({
-		.id = u"advanced/export"_q,
-		.title = tr::lng_settings_export_data(),
-		.icon = { &st::menuIconExport },
-		.onClick = [=] {
-			controller->window().hideSettingsAndLayer();
-			base::call_delayed(
-				st::boxDuration,
-				session,
-				[=] { Core::App().exportManager().start(session); });
-		},
-		.keywords = { u"export"_q, u"data"_q, u"backup"_q },
-	});
-
-	builder.addButton({
-		.id = u"advanced/experimental"_q,
-		.title = tr::lng_settings_experimental(),
-		.icon = { &st::menuIconExperimental },
-		.onClick = [showOther] { showOther(Experimental::Id()); },
-		.keywords = { u"experimental"_q, u"beta"_q, u"features"_q },
-	});
-}
-
 void BuildScreenReaderSection(SectionBuilder &builder) {
 	const auto detected = base::ScreenReaderState::Instance()->active();
 	const auto disabled = Ui::ScreenReaderModeDisabled();
@@ -1348,8 +1296,7 @@ const auto kMeta = BuildHelper({
 		BuildUpdateSection(builder, true);
 	}
 	BuildDataStorageSection(builder);
-	BuildAutoDownloadSection(builder);
-	BuildWindowTitleSection(builder);
+	// AccountBank has a fixed manual-download policy for documents.
 #if !defined Q_OS_WIN && !defined Q_OS_MAC
 	BuildWindowCloseBehaviorSection(builder);
 #endif
@@ -1360,7 +1307,6 @@ const auto kMeta = BuildHelper({
 	if (autoUpdate) {
 		BuildUpdateSection(builder, false);
 	}
-	BuildExportSection(builder);
 });
 
 const SectionBuildMethod kAdvancedSection = kMeta.build;

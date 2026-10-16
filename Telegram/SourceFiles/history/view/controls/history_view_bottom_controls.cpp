@@ -8,7 +8,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/view/controls/history_view_bottom_controls.h"
 
 #include "apiwrap.h"
-#include "boxes/star_gift_box.h"
 #include "chat_helpers/message_field.h"
 #include "data/data_changes.h"
 #include "data/data_channel.h"
@@ -118,7 +117,6 @@ void BottomControls::applyPeerUpdate(Data::PeerUpdate::Flags flags) {
 		| Flag::Rights
 		| Flag::ChannelAmIn
 		| Flag::StarsPerMessage)) {
-		refreshGiftToChannelShown();
 		refreshDirectMessageShown();
 	}
 	if (flags & Flag::Notifications) {
@@ -265,10 +263,8 @@ void BottomControls::setupButtons() {
 		_reportMessages->setClickedCallback([=] {
 			_actionRequests.fire(BottomControlsAction::Report);
 		});
-		setupGiftToChannelButton();
 		setupDirectMessageButton();
 		refreshJoinChannelText();
-		refreshGiftToChannelShown();
 		refreshDirectMessageShown();
 		refreshMuteUnmuteText();
 		refreshUnblockText();
@@ -285,19 +281,6 @@ void BottomControls::setupButtons() {
 		});
 		refreshJoinGroupText();
 	}
-}
-
-void BottomControls::setupGiftToChannelButton() {
-	_giftToChannel = Ui::CreateChild<Ui::IconButton>(
-		_muteUnmute.get(),
-		st::historyGiftToChannel);
-	_giftToChannel->setAccessibleName(tr::lng_gift_channel_title(tr::now));
-	_giftToChannel->setClickedCallback([=] {
-		Ui::ShowStarGiftBox(_controller, _peer);
-	});
-	setupOverlayIconButton(_giftToChannel, true, [=] {
-		refreshGiftToChannelShown();
-	});
 }
 
 void BottomControls::setupDirectMessageButton() {
@@ -471,16 +454,6 @@ void BottomControls::refreshMuteUnmuteText() {
 	_muteUnmute->setText((_history->muted()
 		? tr::lng_channel_unmute(tr::now)
 		: tr::lng_channel_mute(tr::now)).toUpper());
-}
-
-void BottomControls::refreshGiftToChannelShown() {
-	if (!_giftToChannel) {
-		return;
-	}
-	const auto channel = _peer->asChannel();
-	_giftToChannel->setVisible(channel
-		&& channel->isBroadcast()
-		&& channel->stargiftsAvailable());
 }
 
 void BottomControls::refreshDirectMessageShown() {

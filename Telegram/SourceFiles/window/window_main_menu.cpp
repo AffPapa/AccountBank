@@ -18,12 +18,14 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "calls/calls_box_controller.h"
 #include "calls/calls_instance.h"
 #include "core/application.h"
+#include "core/file_utilities.h"
 #include "core/click_handler_types.h"
 #include "data/data_changes.h"
 #include "data/data_document_media.h"
 #include "data/data_folder.h"
 #include "data/data_group_call.h"
 #include "data/data_session.h"
+#include "data/components/message_archive.h"
 #include "data/data_stories.h"
 #include "data/data_user.h"
 #include "info/info_memento.h"
@@ -51,7 +53,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/chat/chat_theme.h"
 #include "ui/controls/swipe_handler.h"
 #include "ui/controls/userpic_button.h"
-#include "ui/effects/snowflakes.h"
 #include "ui/effects/toggle_arrow.h"
 #include "ui/new_badges.h"
 #include "ui/painter.h"
@@ -85,44 +86,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <QtGui/QClipboard>
 
 namespace Window {
-namespace {
-
-constexpr auto kPlayStatusLimit = 2;
-
-[[nodiscard]] bool CanCheckSpecialEvent() {
-	static const auto result = [] {
-		const auto now = QDate::currentDate();
-		return (now.month() == 12) || (now.month() == 1 && now.day() == 1);
-	}();
-	return result;
-}
-
-[[nodiscard]] bool CheckSpecialEvent() {
-	const auto now = QDate::currentDate();
-	return (now.month() == 12 && now.day() >= 24)
-		|| (now.month() == 1 && now.day() == 1);
-}
-
-[[nodiscard]] rpl::producer<TextWithEntities> SetStatusLabel(
-		not_null<Main::Session*> session) {
-	const auto self = session->user();
-	return session->changes().peerFlagsValue(
-		self,
-		Data::PeerUpdate::Flag::EmojiStatus
-	) | rpl::map([=] {
-		return !!self->emojiStatusId();
-	}) | rpl::distinct_until_changed() | rpl::map([](bool has) {
-		const auto makeLink = [](const QString &text) {
-			return tr::link(text);
-		};
-		return (has
-			? tr::lng_menu_change_status
-			: tr::lng_menu_set_status)(makeLink);
-	}) | rpl::flatten_latest();
-}
-
-} // namespace
-
 class MainMenu::ToggleAccountsButton final : public Ui::AbstractButton {
 public:
 	ToggleAccountsButton(QWidget *parent, not_null<Main::Account*> current);
@@ -317,17 +280,6 @@ MainMenu::MainMenu(
 	_controller->session().user(),
 	st::mainMenuUserpic)
 , _toggleAccounts(this, &controller->session().account())
-, _setEmojiStatus(this, SetStatusLabel(&controller->session()))
-, _emojiStatusPanel(std::make_unique<Info::Profile::EmojiStatusPanel>())
-, _badge(std::make_unique<Info::Profile::Badge>(
-	this,
-	st::settingsInfoPeerBadge,
-	&controller->session(),
-	Info::Profile::BadgeContentForPeer(controller->session().user()),
-	_emojiStatusPanel.get(),
-	[=] { return controller->isGifPausedAtLeastFor(GifPauseReason::Layer); },
-	kPlayStatusLimit,
-	Info::Profile::BadgeType::Premium))
 , _scroll(this, st::defaultSolidScroll)
 , _inner(_scroll->setOwnedWidget(
 	object_ptr<Ui::VerticalLayout>(_scroll.data())))
@@ -350,7 +302,6 @@ MainMenu::MainMenu(
 
 	setupUserpicButton();
 	setupAccountsToggle();
-	setupSetEmojiStatus();
 	setupAccounts();
 	setupArchive();
 	setupMenu();
@@ -388,8 +339,8 @@ MainMenu::MainMenu(
 	parentResized();
 
 	_telegram->setMarkedText(tr::link(
-		u"Telegram Desktop"_q,
-		u"https://desktop.telegram.org"_q));
+		u"AccountBank"_q,
+		u"https://github.com/AffPapa/AccountBank"_q));
 	_telegram->setLinksTrusted();
 	// The canary version is too long for the "Version {version}" form.
 	_version->setMarkedText(
@@ -407,22 +358,13 @@ MainMenu::MainMenu(
 		.append(tr::link(tr::lng_menu_about(tr::now), 2))); // Link 2.
 	_version->setLink(
 		1,
-		std::make_shared<UrlClickHandler>(Core::App().changelogLink()));
+		std::make_shared<UrlClickHandler>(
+			u"https://github.com/AffPapa/AccountBank"_q));
 	_version->setLink(
 		2,
 		std::make_shared<LambdaClickHandler>([=] {
 			controller->show(Box(AboutBox));
 		}));
-
-	rpl::combine(
-		_toggleAccounts->rightSkipValue(),
-		rpl::single(rpl::empty) | rpl::then(_badge->updated())
-	) | rpl::on_next([=] {
-		moveBadge();
-	}, lifetime());
-	_badge->setPremiumClickCallback([=] {
-		chooseEmojiStatus();
-	});
 
 	_controller->session().downloaderTaskFinished(
 	) | rpl::on_next([=] {
@@ -431,62 +373,10 @@ MainMenu::MainMenu(
 
 	initResetScaleButton();
 
-	if (CanCheckSpecialEvent() && CheckSpecialEvent()) {
-		const auto snowLifetime = lifetime().make_state<rpl::lifetime>();
-		const auto rebuild = [=] {
-			const auto snowRaw = Ui::CreateChild<Ui::RpWidget>(this);
-			const auto snow = snowLifetime->make_state<Ui::Snowflakes>(
-				[=](const QRect &r) { snowRaw->update(r); });
-			snow->setBrush(QColor(230, 230, 230));
-			_showFinished.value(
-			) | rpl::on_next([=](bool shown) {
-				snow->setPaused(!shown);
-			}, snowRaw->lifetime());
-			snowRaw->paintRequest(
-			) | rpl::on_next([=](const QRect &r) {
-				auto p = Painter(snowRaw);
-				p.fillRect(r, st::mainMenuBg);
-				drawName(p);
-				snow->paint(p, snowRaw->rect());
-			}, snowRaw->lifetime());
-			widthValue(
-			) | rpl::on_next([=](int width) {
-				snowRaw->setGeometry(0, 0, width, st::mainMenuCoverHeight);
-			}, snowRaw->lifetime());
-			snowRaw->show();
-			snowRaw->lower();
-			snowRaw->setAttribute(Qt::WA_TransparentForMouseEvents);
-			snowLifetime->add([=] { base::unique_qptr{ snowRaw }; });
-		};
-		Window::Theme::IsNightModeValue(
-		) | rpl::on_next([=](bool isNightMode) {
-			snowLifetime->destroy();
-			if (isNightMode) {
-				rebuild();
-			}
-		}, lifetime());
-	}
-
 	setupSwipe();
 }
 
 MainMenu::~MainMenu() = default;
-
-void MainMenu::moveBadge() {
-	if (!_badge->widget()) {
-		return;
-	}
-	const auto available = width()
-		- st::mainMenuCoverNameLeft
-		- _toggleAccounts->rightSkip()
-		- _badge->widget()->width();
-	const auto left = st::mainMenuCoverNameLeft
-		+ std::min(_name.maxWidth() + st::semiboldFont->spacew, available);
-	_badge->move(
-		left,
-		st::mainMenuCoverNameTop,
-		st::mainMenuCoverNameTop + st::semiboldFont->height);
-}
 
 void MainMenu::setupArchive() {
 	using namespace Settings;
@@ -632,23 +522,11 @@ void MainMenu::setupAccountsToggle() {
 	});
 }
 
-void MainMenu::setupSetEmojiStatus() {
-	_setEmojiStatus->overrideLinkClickHandler([=] {
-		chooseEmojiStatus();
-	});
-}
-
 void MainMenu::parentResized() {
 	resize(st::mainMenuWidth, parentWidget()->height());
 }
 
 void MainMenu::showFinished() {
-	_showFinished = true;
-
-	_controller->checkHighlightControl(
-		u"main-menu/emoji-status"_q,
-		_setEmojiStatus,
-		Settings::SubsectionTitleHighlight());
 	_controller->checkHighlightControl(
 		u"main-menu/night-mode"_q,
 		_nightThemeToggle);
@@ -667,111 +545,45 @@ void MainMenu::setupMenu() {
 			st::mainMenuButton,
 			std::move(descriptor));
 	};
-	if (!_controller->session().supportMode()) {
-		_menu->add(
-			CreateButtonWithIcon(
-				_menu,
-				tr::lng_menu_my_profile(),
-				st::mainMenuButton,
-				{ &st::menuIconProfile })
-		)->setClickedCallback([=] {
-			controller->showSection(
-				Info::Stories::MakeMyProfile(controller->session().user()));
-		});
+	_menu->add(
+		CreateButtonWithIcon(
+			_menu,
+			tr::lng_menu_my_profile(),
+			st::mainMenuButton,
+			{ &st::menuIconProfile })
+	)->setClickedCallback([=] {
+		controller->showPeerInfo(controller->session().user());
+	});
 
-		SetupMenuBots(_menu, controller);
-
-		_menu->add(
-			object_ptr<Ui::PlainShadow>(_menu),
-			{ 0, st::mainMenuSkip, 0, st::mainMenuSkip });
-
-		AddMyChannelsBox(addAction(
-			tr::lng_create_group_title(),
-			{ &st::menuIconGroups }
-		), controller, true)->addClickHandler([=](Qt::MouseButton which) {
-			if (which == Qt::LeftButton) {
-				controller->showNewGroup();
-			}
-		});
-
-		AddMyChannelsBox(addAction(
-			tr::lng_create_channel_title(),
-			{ &st::menuIconChannel }
-		), controller, false)->addClickHandler([=](Qt::MouseButton which) {
-			if (which == Qt::LeftButton) {
-				controller->showNewChannel();
-			}
-		});
-
-		addAction(
-			tr::lng_menu_contacts(),
-			{ &st::menuIconUserShow }
-		)->setClickedCallback([=] {
-			controller->show(PrepareContactsBox(controller));
-		});
-		addAction(
-			tr::lng_menu_calls(),
-			{ &st::menuIconPhone }
-		)->setClickedCallback([=] {
-			::Calls::ShowCallsBox(controller);
-		});
-		addAction(
-			tr::lng_saved_messages(),
-			{ &st::menuIconSavedMessages }
-		)->setClickedCallback([=] {
-			controller->showPeerHistory(controller->session().user());
-		});
-		const auto session = &controller->session();
-		const auto wallet = _menu->add(
-			object_ptr<Ui::SlideWrap<Ui::SettingsButton>>(
-				_menu,
-				CreateButtonWithIcon(
-					_menu,
-					tr::lng_wallet_menu(),
-					st::mainMenuButton,
-					{ &st::walletMenuIcon })));
-		Ui::NewBadge::AddAfterButtonText(
-			wallet->entity(),
-			tr::lng_wallet_menu(),
-			st::mainMenuButton);
-		wallet->toggleOn(session->appConfig().value(
-		) | rpl::map([=] {
-			return session->appConfig().walletAvailable();
-		}) | rpl::distinct_until_changed());
-		wallet->finishAnimating();
-		wallet->entity()->setClickedCallback([=] {
-			controller->window().hideSettingsAndLayer();
-			Wallet::ShowWallet(session);
-		});
-	} else {
-		addAction(
-			tr::lng_profile_add_contact(),
-			{ &st::menuIconProfile }
-		)->setClickedCallback([=] {
-			controller->showAddContact();
-		});
-		addAction(
-			rpl::single(u"Fix chats order"_q),
-			{ &st::menuIconPin }
-		)->toggleOn(rpl::single(
-			_controller->session().settings().supportFixChatsOrder()
-		))->toggledChanges(
-		) | rpl::on_next([=](bool fix) {
-			_controller->session().settings().setSupportFixChatsOrder(fix);
-			_controller->session().saveSettings();
-		}, _menu->lifetime());
-		addAction(
-			rpl::single(u"Reload templates"_q),
-			{ &st::menuIconRestore }
-		)->setClickedCallback([=] {
-			_controller->session().supportTemplates().reload();
-		});
-	}
+	addAction(
+		tr::lng_saved_messages(),
+		{ &st::menuIconSavedMessages }
+	)->setClickedCallback([=] {
+		controller->showPeerHistory(controller->session().user());
+	});
 	addAction(
 		tr::lng_menu_settings(),
 		{ &st::menuIconSettings }
 	)->setClickedCallback([=] {
 		controller->showSettings();
+	});
+	addAction(
+		tr::lng_accountbank_export_archive(),
+		{ &st::menuIconExport }
+	)->setClickedCallback([=] {
+		auto &session = controller->session();
+		const auto path = File::DefaultDownloadPath(&session)
+			+ u"AccountBank archive %1.json"_q
+				.arg(session.userId().bare);
+		if (session.data().archive().exportTo(path)) {
+			controller->showToast(tr::lng_accountbank_archive_exported(
+				tr::now,
+				lt_path,
+				path));
+		} else {
+			controller->showToast(
+				tr::lng_accountbank_archive_failed(tr::now));
+		}
 	});
 
 	_nightThemeToggle = addAction(
@@ -826,10 +638,6 @@ void MainMenu::updateControlsGeometry() {
 	if (_resetScaleButton) {
 		_resetScaleButton->moveToRight(0, 0);
 	}
-	_setEmojiStatus->moveToLeft(
-		st::mainMenuCoverStatusLeft,
-		st::mainMenuCoverStatusTop,
-		width());
 	_toggleAccounts->setGeometry(
 		0,
 		st::mainMenuCoverNameTop,
@@ -855,34 +663,6 @@ void MainMenu::updateInnerControlsGeometry() {
 	}
 }
 
-void MainMenu::chooseEmojiStatus() {
-	if (_controller->showFrozenError()) {
-		return;
-	} else if (const auto widget = _badge->widget()) {
-		setupEmojiStatusDismiss();
-		_emojiStatusPanel->show(_controller, widget, _badge->sizeTag());
-	} else {
-		ShowPremiumPreviewBox(_controller, PremiumFeature::EmojiStatus);
-	}
-}
-
-void MainMenu::setupEmojiStatusDismiss() {
-	if (_emojiStatusDismissSetup) {
-		return;
-	}
-	_emojiStatusDismissSetup = true;
-
-	base::install_event_filter(this, parentWidget(), [=](
-			not_null<QEvent*> e) {
-		if (e->type() != QEvent::MouseButtonPress
-			|| !_emojiStatusPanel->shown()) {
-			return base::EventFilterResult::Continue;
-		}
-		_emojiStatusPanel->hideAnimated();
-		return base::EventFilterResult::Cancel;
-	});
-}
-
 bool MainMenu::eventHook(QEvent *event) {
 	const auto type = event->type();
 	if (type == QEvent::TouchBegin
@@ -892,10 +672,6 @@ bool MainMenu::eventHook(QEvent *event) {
 		QGuiApplication::sendEvent(_inner, event);
 	}
 	return RpWidget::eventHook(event);
-}
-
-void MainMenu::hideEvent(QHideEvent *e) {
-	_emojiStatusPanel->hideFast();
 }
 
 void MainMenu::paintEvent(QPaintEvent *e) {
@@ -921,7 +697,6 @@ void MainMenu::drawName(Painter &p) {
 			st::semiboldTextStyle,
 			user->name(),
 			Ui::NameTextOptions());
-		moveBadge();
 	}
 	p.setFont(st::semiboldFont);
 	p.setPen(st::windowBoldFg);
@@ -929,10 +704,7 @@ void MainMenu::drawName(Painter &p) {
 		p,
 		st::mainMenuCoverNameLeft,
 		st::mainMenuCoverNameTop,
-		(widthText
-			- (_badge->widget()
-				? (st::semiboldFont->spacew + _badge->widget()->width())
-				: 0)),
+		widthText,
 		width());
 }
 
@@ -1058,9 +830,6 @@ void MainMenu::setupSwipe() {
 
 	auto init = [=](Ui::Controls::SwipeHandlerInitData data) {
 		if (data.direction != Qt::LeftToRight) {
-			return Ui::Controls::SwipeHandlerFinishData();
-		}
-		if (_emojiStatusPanel && _emojiStatusPanel->hasFocus()) {
 			return Ui::Controls::SwipeHandlerFinishData();
 		}
 		return Ui::Controls::DefaultSwipeBackHandlerFinishData([=] {

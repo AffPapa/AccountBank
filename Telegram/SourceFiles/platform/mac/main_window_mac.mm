@@ -9,6 +9,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "data/data_session.h"
 #include "core/application.h"
+#include "core/core_screenshot_protection.h"
 #include "core/sandbox.h"
 #include "main/main_session.h"
 #include "history/history_widget.h"
@@ -32,6 +33,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "boxes/about_box.h"
 #include "lang/lang_keys.h"
 #include "base/platform/mac/base_utilities_mac.h"
+#include "rpl/rpl.h"
 
 #include <QtWidgets/QLineEdit>
 #include <QtWidgets/QTextEdit>
@@ -257,11 +259,25 @@ void MainWindow::initHook() {
 			}
 		}
 	}
+	if (Core::App().settings().streamerMode()) {
+		// WHY: a registry reason keeps ambient and content reasons
+		// from resetting sharingType after this.
+		Core::App().screenshotProtection().addContentReason(
+			this,
+			rpl::single(true),
+			lifetime());
+	}
 
 	Platform::GlobalMenuMarkdownState(
 	) | rpl::on_next([this](Ui::MarkdownEnabledState state) {
 		_private->updateMarkdownState(state);
 	}, lifetime());
+}
+
+void MainWindow::handleVisibleChangedHook(bool visible) {
+	if (visible && Core::App().settings().streamerMode()) {
+		SetWindowScreenshotProtection(this, true);
+	}
 }
 
 void MainWindow::updateWindowIcon() {

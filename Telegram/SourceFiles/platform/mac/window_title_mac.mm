@@ -83,10 +83,10 @@ void PreviewWindowTitle(Painter &p, const style::palette &palette, QRect body, i
 		constexpr auto kTrafficLightsWidth = 8 + 3 * (12 + 8);
 		p.drawText(
 			titleRect.adjusted(kTrafficLightsWidth, 0, 0, 0),
-			u"Telegram"_q,
+			u"AccountBank"_q,
 			style::al_left);
 	} else {
-		p.drawText(titleRect, u"Telegram"_q, style::al_center);
+		p.drawText(titleRect, u"AccountBank"_q, style::al_center);
 	}
 
 	auto isGraphite = ([NSColor currentControlTint] == NSGraphiteControlTint);

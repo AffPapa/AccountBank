@@ -82,6 +82,10 @@ public:
 	[[nodiscard]] StartResult legacyStart(const QByteArray &passcode);
 	[[nodiscard]] std::unique_ptr<MTP::Config> start(
 		MTP::AuthKeyPtr localKey);
+	[[nodiscard]] bool mapReadFailed() const {
+		return _mapReadFailed;
+	}
+	[[nodiscard]] bool hasExistingStorageFiles() const;
 	void startAdded(MTP::AuthKeyPtr localKey);
 	[[nodiscard]] int oldMapVersion() const {
 		return _oldMapVersion;
@@ -89,6 +93,7 @@ public:
 
 	[[nodiscard]] QString tempDirectory() const;
 	[[nodiscard]] QString supportModePath() const;
+	[[nodiscard]] QString accountFolder() const;
 
 	[[nodiscard]] MTP::AuthKeyPtr peekLegacyLocalKey() const {
 		return _localKey;
@@ -284,7 +289,9 @@ private:
 	void writeSessionSettings(Main::SessionSettings *stored);
 
 	std::unique_ptr<MTP::Config> readMtpConfig();
-	void readMtpData();
+	[[nodiscard]] bool readMtpData();
+	[[nodiscard]] std::optional<uint64> authorizationUserId(
+		const MTP::AuthKeyPtr &key) const;
 	std::unique_ptr<Main::SessionSettings> applyReadContext(
 		details::ReadSettingsContext &&context);
 
@@ -414,6 +421,7 @@ private:
 	base::Timer _writeLocationsTimer;
 	base::Timer _writeSearchSuggestionsTimer;
 	bool _mapChanged = false;
+	bool _mapReadFailed = false;
 	bool _prefsChanged = false;
 	bool _locationsChanged = false;
 

@@ -1164,9 +1164,11 @@ void AccountsList::rebuild() {
 
 	const auto count = int(list.size());
 
-	_reorder->addPinnedInterval(
-		premiumLimit,
-		std::max(1, count - premiumLimit));
+	if (count > premiumLimit) {
+		_reorder->addPinnedInterval(
+			premiumLimit,
+			count - premiumLimit);
+	}
 
 	_addAccount->toggle(
 		(count < ::Main::Domain::kAccountBankMaxAccounts),

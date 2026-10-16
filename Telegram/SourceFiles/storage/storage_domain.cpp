@@ -338,9 +338,18 @@ StartResult Domain::start(PasscodeDerivation derived) {
 	} else if (modern == StartModernResult::IncorrectPasscode) {
 		return StartResult::IncorrectPasscode;
 	} else if (modern == StartModernResult::Failed) {
-		// startFromScratch() drops a local key startModern() already read.
-		startFromScratch();
-		return StartResult::Success;
+		// Never replace an existing key after a failed read or parse.
+		return StartResult::Failed;
+	}
+	// No domain key was found. Legacy storage used only slot zero; files in
+	// another slot imply a lost modern key and must not be orphaned by a fresh
+	// profile. Use the normal account name composition for each slot.
+	for (auto index = 1; index != Main::Domain::kAccountBankMaxAccounts; ++index) {
+		const auto account = Main::Account(_owner, _dataName, index);
+		if (account.local().hasExistingStorageFiles()) {
+			LOG(("App Error: account files exist without a domain key."));
+			return StartResult::Failed;
+		}
 	}
 	auto legacy = std::make_unique<Main::Account>(_owner, _dataName, 0);
 	const auto result = legacy->legacyStart(derived._passcode);
@@ -493,7 +502,14 @@ Domain::StartModernResult Domain::startModern(
 	const auto name = ComputeKeyName(_dataName);
 
 	FileReadDescriptor file;
-	if (!ReadFile(file, name, BaseGlobalPath())) {
+	if (!ReadFile(file, name, BaseGlobalPath(), false)) {
+		const auto base = BaseGlobalPath() + name;
+		for (const auto suffix : { 's', '0', '1' }) {
+			if (QFileInfo::exists(base + suffix)) {
+				LOG(("App Error: an existing accounts key could not be read."));
+				return StartModernResult::Failed;
+			}
+		}
 		return StartModernResult::Empty;
 	}
 	LOG(("App Info: reading accounts info..."));
@@ -504,7 +520,8 @@ Domain::StartModernResult Domain::startModern(
 	if (read == ReadKeyDataResult::Failed) {
 		return StartModernResult::Failed;
 	} else if (read == ReadKeyDataResult::UnsupportedKdf) {
-		return StartModernResult::IncorrectPasscode;
+		LOG(("App Error: accounts key uses an unsupported KDF."));
+		return StartModernResult::Failed;
 	}
 	*_keyData = std::move(parsed);
 
@@ -626,52 +643,95 @@ Domain::StartModernResult Domain::startModern(
 	LOG(("App Info: reading encrypted info..."));
 	auto count = qint32();
 	info.stream >> count;
-	if (count <= 0 || count > Main::Domain::kAccountBankMaxAccounts) {
+	if (!CheckStreamStatus(info.stream)
+		|| count <= 0
+		|| count > Main::Domain::kAccountBankMaxAccounts) {
 		LOG(("App Error: bad accounts count: %1").arg(count));
 		return StartModernResult::Failed;
 	}
 
-	_oldVersion = file.version;
-
 	auto tried = base::flat_set<int>();
-	auto sessions = base::flat_set<uint64>();
-	auto active = 0;
+	auto indices = std::vector<int>();
+	indices.reserve(count);
 	for (auto i = 0; i != count; ++i) {
 		auto index = qint32();
 		info.stream >> index;
-		if (index >= 0
-			&& index < Main::Domain::kAccountBankMaxAccounts
-			&& tried.emplace(index).second) {
-			auto account = std::make_unique<Main::Account>(
-				_owner,
-				_dataName,
-				index);
-			auto config = account->prepareToStart(_localKey);
-			const auto sessionId = account->willHaveSessionUniqueId(
-				config.get());
-			if (!sessions.contains(sessionId)
-				&& (sessionId != 0 || (sessions.empty() && i + 1 == count))) {
-				if (sessions.empty()) {
-					active = index;
-				}
-				account->start(std::move(config));
-				_owner->accountAddedInStorage({
-					.index = index,
-					.account = std::move(account)
-				});
-				sessions.emplace(sessionId);
-			}
+		if (!CheckStreamStatus(info.stream)
+			|| index < 0
+			|| index >= Main::Domain::kAccountBankMaxAccounts
+			|| !tried.emplace(index).second) {
+			LOG(("App Error: invalid or incomplete account index list."));
+			return StartModernResult::Failed;
+		}
+		indices.push_back(index);
+	}
+
+	auto storedActive = indices.front();
+	if (!info.stream.atEnd()) {
+		info.stream >> storedActive;
+		if (!CheckStreamStatus(info.stream)
+			|| !info.stream.atEnd()) {
+			LOG(("App Error: invalid active account index."));
+			return StartModernResult::Failed;
+		}
+		if (!tried.contains(storedActive)) {
+			storedActive = indices.front();
 		}
 	}
-	if (sessions.empty()) {
+
+	struct PendingAccount {
+		int index = 0;
+		std::unique_ptr<Main::Account> account;
+		std::unique_ptr<MTP::Config> config;
+	};
+	auto pending = std::vector<PendingAccount>();
+	pending.reserve(count);
+	auto sessions = base::flat_set<uint64>();
+	for (auto i = 0; i != count; ++i) {
+		const auto index = indices[i];
+		auto account = std::make_unique<Main::Account>(
+			_owner,
+			_dataName,
+			index);
+		auto config = account->prepareToStart(_localKey);
+		if (account->local().mapReadFailed()) {
+			LOG(("App Error: an existing account map or authorization could not be read."));
+			return StartModernResult::Failed;
+		}
+		const auto sessionId = account->willHaveSessionUniqueId(config.get());
+		if (sessionId == 0 && !(sessions.empty() && i + 1 == count)) {
+			// An unfinished add leaves a blank slot. Older Telegram builds
+			// skipped it when other logged-in sessions could be recovered.
+			continue;
+		}
+		if (sessions.contains(sessionId)) {
+			LOG(("App Error: duplicate account session."));
+			return StartModernResult::Failed;
+		}
+		sessions.emplace(sessionId);
+		pending.push_back({
+			.index = index,
+			.account = std::move(account),
+			.config = std::move(config),
+		});
+	}
+	if (pending.empty()) {
 		LOG(("App Error: no accounts read."));
 		return StartModernResult::Failed;
 	}
-
-	if (!info.stream.atEnd()) {
-		info.stream >> active;
+	if (!ranges::contains(pending, storedActive, &PendingAccount::index)) {
+		storedActive = pending.front().index;
 	}
-	_owner->activateFromStorage(active);
+
+	_oldVersion = file.version;
+	for (auto &entry : pending) {
+		entry.account->start(std::move(entry.config));
+		_owner->accountAddedInStorage({
+			.index = entry.index,
+			.account = std::move(entry.account),
+		});
+	}
+	_owner->activateFromStorage(storedActive);
 
 	Ensures(!sessions.empty());
 	return StartModernResult::Success;

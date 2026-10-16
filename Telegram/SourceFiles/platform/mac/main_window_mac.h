@@ -38,6 +38,7 @@ protected:
 
 	void stateChangedHook(Qt::WindowState state) override;
 	void initHook() override;
+	void handleVisibleChangedHook(bool visible) override;
 	void unreadCounterChangedHook() override;
 
 	void closeWithoutDestroy() override;

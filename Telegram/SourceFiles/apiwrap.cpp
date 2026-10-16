@@ -1451,23 +1451,27 @@ void ApiWrap::markContentsRead(
 			markedIds.push_back(MTP_int(item->id));
 		}
 	}
-	if (!markedIds.isEmpty()) {
+	if (!markedIds.isEmpty() && !Core::App().settings().ghostMode()) {
 		request(MTPmessages_ReadMessageContents(
 			MTP_vector<MTPint>(markedIds)
 		)).done([=](const MTPmessages_AffectedMessages &result) {
 			applyAffectedMessages(result);
 		}).send();
 	}
-	for (const auto &channelIds : channelMarkedIds) {
-		request(MTPchannels_ReadMessageContents(
-			channelIds.first->inputChannel(),
-			MTP_vector<MTPint>(channelIds.second)
-		)).send();
+	if (!Core::App().settings().ghostMode()) {
+		for (const auto &channelIds : channelMarkedIds) {
+			request(MTPchannels_ReadMessageContents(
+				channelIds.first->inputChannel(),
+				MTP_vector<MTPint>(channelIds.second)
+			)).send();
+		}
 	}
 }
 
 void ApiWrap::markContentsRead(not_null<HistoryItem*> item) {
 	if (!item->markContentsRead(true) || !item->isRegular()) {
+		return;
+	} else if (Core::App().settings().ghostMode()) {
 		return;
 	}
 	const auto ids = MTP_vector<MTPint>(1, MTP_int(item->id));

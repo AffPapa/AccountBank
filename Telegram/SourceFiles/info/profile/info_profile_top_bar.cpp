@@ -20,8 +20,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "boxes/peers/manage_community_box.h"
 #include "boxes/moderate_messages_box.h"
 #include "boxes/report_messages_box.h"
-#include "boxes/star_gift_box.h"
-#include "calls/calls_instance.h"
 #include "chat_helpers/stickers_lottie.h"
 #include "core/application.h"
 #include "core/shortcuts.h"
@@ -1099,25 +1097,6 @@ void TopBar::setupActions(not_null<Window::SessionController*> controller) {
 	if (chechMax()) {
 		return;
 	}
-	if (!isSide
-		&& user
-		&& !user->sharedMediaInfo()
-		&& !user->isInaccessible()
-		&& user->callsStatus() != UserData::CallsStatus::Disabled) {
-		const auto call = Ui::CreateChild<TopBarActionButton>(
-			this,
-			tr::lng_profile_action_short_call(tr::now),
-			st::infoProfileTopBarActionCall);
-		call->setClickedCallback([=] {
-			Core::App().calls().startOutgoingCall(user, {});
-		});
-		call->setAccessibleName(tr::lng_profile_action_short_call(tr::now));
-		buttons.push_back(call);
-		_actions->add(call);
-	}
-	if (chechMax()) {
-		return;
-	}
 	if (const auto chat = channel ? channel->discussionLink() : nullptr;
 			chat && chat->isMegagroup()) {
 		const auto discuss = Ui::CreateChild<TopBarActionButton>(
@@ -1161,41 +1140,6 @@ void TopBar::setupActions(not_null<Window::SessionController*> controller) {
 		manage->setAccessibleName(tr::lng_profile_action_short_manage(tr::now));
 		buttons.push_back(manage);
 		_actions->add(manage);
-	}
-	if (chechMax()) {
-		return;
-	}
-	if (peer->groupCall()
-		|| (!peer->isUser() && peer->canManageGroupCall())) {
-		const auto broadcast = peer->isBroadcast();
-		const auto text = broadcast
-			? tr::lng_profile_action_short_live_stream(tr::now)
-			: tr::lng_profile_action_short_video_chat(tr::now);
-		const auto liveStream = Ui::CreateChild<TopBarActionButton>(
-			this,
-			text,
-			st::infoProfileTopBarActionLiveStream);
-		liveStream->setClickedCallback([=] {
-			controller->startOrJoinGroupCall(peer);
-		});
-		liveStream->setAccessibleName(text);
-		buttons.push_back(liveStream);
-		_actions->add(liveStream);
-	}
-	if (chechMax()) {
-		return;
-	}
-	if (Ui::CanSendStarGiftTo(peer)) {
-		const auto giftButton = Ui::CreateChild<TopBarActionButton>(
-			this,
-			tr::lng_profile_action_short_gift(tr::now),
-			st::infoProfileTopBarActionGift);
-		giftButton->setClickedCallback([=] {
-			Ui::ShowStarGiftBox(controller, peer);
-		});
-		giftButton->setAccessibleName(tr::lng_profile_action_short_gift(tr::now));
-		_actions->add(giftButton);
-		buttons.push_back(giftButton);
 	}
 	if (chechMax()) {
 		return;

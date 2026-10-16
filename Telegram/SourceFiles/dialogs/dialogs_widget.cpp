@@ -24,7 +24,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/history_item.h"
 #include "history/view/history_view_chat_section.h"
 #include "history/view/history_view_contact_status.h"
-#include "history/view/history_view_group_call_bar.h"
 #include "history/view/history_view_requests_bar.h"
 #include "history/view/history_view_top_bar_widget.h"
 #include "boxes/peers/community_box.h"
@@ -2469,13 +2468,7 @@ void Widget::refreshTopBars() {
 				peer,
 				st::historyRequestsUserpics.size,
 				true));
-		_forumGroupCallBar = std::make_unique<Ui::GroupCallBar>(
-			this,
-			HistoryView::GroupCallBarContentByPeer(
-				peer,
-				st::historyGroupCallUserpics.size,
-				true),
-			Core::App().appDeactivatedValue());
+		_forumGroupCallBar = nullptr;
 		_forumTopShadow = std::make_unique<Ui::PlainShadow>(this);
 
 		_forumRequestsBar->barClicks(
@@ -2483,31 +2476,18 @@ void Widget::refreshTopBars() {
 			RequestsBoxController::Start(controller(), peer);
 		}, _forumRequestsBar->lifetime());
 
-		rpl::merge(
-			_forumGroupCallBar->barClicks(),
-			_forumGroupCallBar->joinClicks()
-		) | rpl::on_next([=] {
-			if (peer->groupCall()) {
-				controller()->startOrJoinGroupCall(peer);
-			}
-		}, _forumGroupCallBar->lifetime());
-
 		if (_showAnimation) {
 			_forumTopShadow->hide();
-			_forumGroupCallBar->hide();
 			_forumRequestsBar->hide();
 			_forumReportBar->bar().hide();
 		} else {
 			_forumTopShadow->show();
-			_forumGroupCallBar->show();
 			_forumRequestsBar->show();
 			_forumReportBar->show();
-			_forumGroupCallBar->finishAnimating();
 			_forumRequestsBar->finishAnimating();
 		}
 
 		rpl::combine(
-			_forumGroupCallBar->heightValue(),
 			_forumRequestsBar->heightValue(),
 			_forumReportBar->bar().heightValue()
 		) | rpl::on_next([=] {

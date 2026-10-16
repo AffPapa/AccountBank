@@ -76,6 +76,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/vertical_list.h"
 #include "ui/widgets/buttons.h"
 #include "ui/widgets/continuous_sliders.h"
+#include "ui/widgets/fields/input_field.h"
 #include "ui/widgets/menu/menu_add_action_callback.h"
 #include "ui/widgets/menu/menu_item_base.h"
 #include "ui/widgets/popup_menu.h"
@@ -118,19 +119,15 @@ private:
 	void refreshNameGeometry(int newWidth);
 	void refreshPhoneGeometry(int newWidth);
 	void refreshUsernameGeometry(int newWidth);
-	void refreshQrButtonGeometry(int newWidth);
 
 	const not_null<Window::SessionController*> _controller;
 	const not_null<UserData*> _user;
-	Info::Profile::EmojiStatusPanel _emojiStatusPanel;
-	Info::Profile::Badge _badge;
 
 	object_ptr<Ui::UserpicButton> _userpic;
 	object_ptr<Ui::FlatLabel> _name = { nullptr };
 	object_ptr<Ui::FlatLabel> _phone = { nullptr };
 	QString _phoneText;
 	object_ptr<Ui::FlatLabel> _username = { nullptr };
-	object_ptr<Ui::IconButton> _qrButton = { nullptr };
 
 };
 
@@ -145,18 +142,6 @@ Cover::Cover(
 		+ st::settingsPhotoBottom)
 , _controller(controller)
 , _user(user)
-, _badge(
-	this,
-	st::settingsCoverBadge,
-	&user->session(),
-	Info::Profile::BadgeContentForPeer(user),
-	&_emojiStatusPanel,
-	[=] {
-		return controller->isGifPausedAtLeastFor(
-			Window::GifPauseReason::Layer);
-	},
-	0, // customStatusLoopsLimit
-	Info::Profile::BadgeType::Premium)
 , _userpic(
 	this,
 	controller,
@@ -194,7 +179,7 @@ Cover::Cover(
 	initViewers();
 	setupChildGeometry();
 
-	_userpic->setVideoAllowed(true);
+	_userpic->setVideoAllowed(false);
 	_userpic->switchChangePhotoOverlay(_user->isSelf(), [=](
 			Ui::UserpicButton::ChosenImage chosen) {
 		auto &image = chosen.image;
@@ -213,28 +198,6 @@ Cover::Cover(
 		}
 	});
 
-	_badge.setPremiumClickCallback([=] {
-		_emojiStatusPanel.show(
-			_controller,
-			_badge.widget(),
-			_badge.sizeTag());
-	});
-	_badge.updated() | rpl::on_next([=] {
-		refreshNameGeometry(width());
-	}, _name->lifetime());
-
-	_qrButton.create(this, st::infoProfileLabeledButtonQr);
-	_qrButton->setAccessibleName(tr::lng_group_invite_context_qr(tr::now));
-	_qrButton->setClickedCallback([=, show = controller->uiShow()] {
-		Ui::DefaultShowFillPeerQrBoxCallback(show, _user);
-	});
-	Info::Profile::UsernamesValue(
-		_user
-	) | rpl::on_next([=](const auto &usernames) {
-		_qrButton->setVisible(!usernames.empty());
-		refreshNameGeometry(width());
-		refreshQrButtonGeometry(width());
-	}, _qrButton->lifetime());
 }
 
 Cover::~Cover() = default;
@@ -250,7 +213,6 @@ void Cover::setupChildGeometry() {
 		refreshNameGeometry(newWidth);
 		refreshPhoneGeometry(newWidth);
 		refreshUsernameGeometry(newWidth);
-		refreshQrButtonGeometry(newWidth);
 	}, lifetime());
 }
 
@@ -305,22 +267,11 @@ void Cover::initViewers() {
 void Cover::refreshNameGeometry(int newWidth) {
 	const auto nameLeft = st::settingsNameLeft;
 	const auto nameTop = st::settingsNameTop;
-	const auto qrButtonWidth = (_qrButton && !_qrButton->isHidden())
-		? (_qrButton->width() + st::infoProfileCover.rightSkip)
-		: 0;
 	auto nameWidth = newWidth
 		- nameLeft
-		- st::infoProfileCover.rightSkip
-		- qrButtonWidth;
-	if (const auto width = _badge.widget() ? _badge.widget()->width() : 0) {
-		nameWidth -= st::infoVerifiedCheckPosition.x() + width;
-	}
+		- st::infoProfileCover.rightSkip;
 	_name->resizeToNaturalWidth(nameWidth);
 	_name->moveToLeft(nameLeft, nameTop, newWidth);
-	const auto badgeLeft = nameLeft + _name->width();
-	const auto badgeTop = nameTop;
-	const auto badgeBottom = nameTop + _name->height();
-	_badge.move(badgeLeft, badgeTop, badgeBottom);
 }
 
 void Cover::updatePhoneText() {
@@ -352,28 +303,16 @@ void Cover::refreshUsernameGeometry(int newWidth) {
 	_username->moveToLeft(usernameLeft, usernameTop, newWidth);
 }
 
-void Cover::refreshQrButtonGeometry(int newWidth) {
-	if (!_qrButton) {
-		return;
-	}
-	const auto buttonTop = (height() - _qrButton->height()) / 2;
-	const auto buttonRight = st::infoProfileCover.rightSkip;
-	const auto inset = st::infoProfileLabeledButtonQrInset;
-	_qrButton->moveToRight(buttonRight - inset, buttonTop, newWidth);
-}
-
 void BuildSectionButtons(SectionBuilder &builder) {
 	const auto session = builder.session();
 	const auto controller = builder.controller();
-	const auto showOther = builder.showOther();
 
 	if (!session->supportMode()) {
 		builder.addButton({
 			.title = tr::lng_settings_my_account(),
 			.icon = { &st::menuIconProfile },
 			.onClick = [=] {
-				controller->showSection(
-					Info::Stories::MakeMyProfile(session->user()));
+				controller->showPeerInfo(session->user());
 			},
 			.keywords = { u"profile"_q, u"edit"_q, u"information"_q },
 		});
@@ -394,68 +333,31 @@ void BuildSectionButtons(SectionBuilder &builder) {
 	});
 
 	builder.addSectionButton({
-		.title = tr::lng_settings_section_chat_settings(),
-		.targetSection = ChatId(),
-		.icon = { &st::menuIconChatBubble },
-		.keywords = { u"themes"_q, u"appearance"_q, u"stickers"_q },
-	});
-
-	{ // Folders
-		const auto preload = [=] {
-			session->data().chatsFilters().requestSuggested();
-		};
-		const auto hasFilters = session->data().chatsFilters().has()
-			|| session->settings().dialogsFiltersEnabled();
-
-		auto shownProducer = hasFilters
-			? rpl::single(true) | rpl::type_erased
-			: (rpl::single(rpl::empty) | rpl::then(
-				session->appConfig().refreshed()
-			) | rpl::map([=] {
-			const auto enabled = session->appConfig().get<bool>(
-				u"dialog_filters_enabled"_q,
-				false);
-			if (enabled) {
-				preload();
-			}
-			return enabled;
-		}));
-
-		if (hasFilters) {
-			preload();
-		}
-
-		builder.addButton({
-			.title = tr::lng_settings_section_filters(),
-			.icon = { &st::menuIconShowInFolder },
-			.onClick = [=] { showOther(FoldersId()); },
-			.keywords = { u"filters"_q, u"tabs"_q },
-			.shown = std::move(shownProducer),
-		});
-	}
-
-	builder.addSectionButton({
 		.title = tr::lng_settings_advanced(),
 		.targetSection = AdvancedId(),
 		.icon = { &st::menuIconManage },
-		.keywords = { u"performance"_q, u"proxy"_q, u"experimental"_q },
-	});
-
-	builder.addSectionButton({
-		.title = tr::lng_settings_section_devices(),
-		.targetSection = CallsId(),
-		.icon = { &st::menuIconUnmute },
-		.keywords = { u"sessions"_q, u"calls"_q },
+		.keywords = { u"performance"_q, u"proxy"_q, u"cache"_q },
 	});
 
 	builder.addButton({
-		.id = u"main/power"_q,
-		.title = tr::lng_settings_power_menu(),
-		.icon = { &st::menuIconPowerUsage },
-		.onClick = [=] {
-			controller->show(Box(PowerSavingBox, PowerSaving::Flags()));
+		.id = u"main/send_key"_q,
+		.title = tr::lng_settings_messages(),
+		.icon = { &st::menuIconChatBubble },
+		.label = Core::App().settings().sendSubmitWayValue(
+		) | rpl::map([](Ui::InputSubmitSettings value) {
+			return (value == Ui::InputSubmitSettings::Enter)
+				? tr::lng_settings_send_enter(tr::now)
+				: tr::lng_settings_send_cmdenter(tr::now);
+		}),
+		.onClick = [] {
+			auto &settings = Core::App().settings();
+			settings.setSendSubmitWay(
+				settings.sendSubmitWay() == Ui::InputSubmitSettings::Enter
+					? Ui::InputSubmitSettings::CtrlEnter
+					: Ui::InputSubmitSettings::Enter);
+			Core::App().saveSettingsDelayed();
 		},
-		.keywords = { u"battery"_q, u"animations"_q, u"power"_q, u"saving"_q },
+		.keywords = { u"send"_q, u"enter"_q, u"keyboard"_q },
 	});
 
 	builder.addButton({
@@ -494,119 +396,6 @@ void BuildInterfaceScale(SectionBuilder &builder) {
 			.title = tr::lng_settings_default_scale(tr::now),
 			.keywords = { u"zoom"_q, u"size"_q, u"interface"_q, u"ui"_q },
 		};
-	});
-
-	builder.addSkip();
-}
-
-void BuildPremiumSection(SectionBuilder &builder) {
-	const auto session = builder.session();
-	const auto controller = builder.controller();
-	const auto showOther = builder.showOther();
-
-	if (!session->premiumPossible()) {
-		return;
-	}
-
-	builder.addDivider();
-	builder.addSkip();
-
-	builder.addPremiumButton({
-		.id = u"main/premium"_q,
-		.title = tr::lng_premium_summary_title(),
-		.onClick = [=] {
-			controller->setPremiumRef("settings");
-			showOther(PremiumId());
-		},
-		.keywords = { u"subscription"_q },
-	});
-
-	session->credits().load();
-	builder.addPremiumButton({
-		.id = u"main/credits"_q,
-		.title = tr::lng_settings_credits(),
-		.label = session->credits().balanceValue(
-		) | rpl::map([](CreditsAmount c) {
-			return c
-				? Lang::FormatCreditsAmountToShort(c).string
-				: QString();
-		}),
-		.credits = true,
-		.onClick = [=] {
-			controller->setPremiumRef("settings");
-			showOther(CreditsId());
-		},
-		.keywords = { u"stars"_q, u"balance"_q },
-	});
-
-	session->credits().tonLoad();
-	builder.addButton({
-		.id = u"main/currency"_q,
-		.title = tr::lng_settings_currency(),
-		.icon = { &st::menuIconTon },
-		.label = session->credits().tonBalanceValue(
-		) | rpl::map([](CreditsAmount c) {
-			return c ? Lang::FormatCreditsAmountToShort(c).string : u""_q;
-		}),
-		.onClick = [=] {
-			controller->setPremiumRef("settings");
-			showOther(CurrencyId());
-		},
-		.keywords = { u"ton"_q, u"crypto"_q, u"wallet"_q },
-		.shown = session->credits().tonBalanceValue(
-		) | rpl::map([](CreditsAmount c) { return !c.empty(); }),
-	});
-
-	builder.addButton({
-		.id = u"main/business"_q,
-		.title = tr::lng_business_title(),
-		.icon = { .icon = &st::menuIconShop },
-		.onClick = [=] { showOther(BusinessId()); },
-		.keywords = { u"work"_q, u"company"_q },
-	});
-
-	if (session->premiumCanBuy()) {
-		builder.addButton({
-			.id = u"main/send-gift"_q,
-			.title = tr::lng_settings_gift_premium(),
-			.icon = { .icon = &st::menuIconGiftPremium, .newBadge = true },
-			.onClick = [=] { Ui::ChooseStarGiftRecipient(controller); },
-			.keywords = { u"present"_q, u"send"_q },
-		});
-	}
-
-	builder.addSkip();
-}
-
-void BuildHelpSection(SectionBuilder &builder) {
-	builder.addDivider();
-	builder.addSkip();
-
-	const auto controller = builder.controller();
-	builder.addButton({
-		.id = u"main/faq"_q,
-		.title = tr::lng_settings_faq(),
-		.icon = { &st::menuIconFaq },
-		.onClick = [=] { OpenFaq(controller); },
-		.keywords = { u"help"_q, u"support"_q, u"questions"_q },
-	});
-
-	builder.addButton({
-		.id = u"main/features"_q,
-		.title = tr::lng_settings_features(),
-		.icon = { &st::menuIconEmojiObjects },
-		.onClick = [] {
-			UrlClickHandler::Open(tr::lng_telegram_features_url(tr::now));
-		},
-		.keywords = { u"tips"_q, u"tutorial"_q },
-	});
-
-	builder.addButton({
-		.id = u"main/ask-question"_q,
-		.title = tr::lng_settings_ask_question(),
-		.icon = { &st::menuIconDiscussion },
-		.onClick = [=] { OpenAskQuestionConfirm(controller); },
-		.keywords = { u"contact"_q, u"feedback"_q },
 	});
 
 	builder.addSkip();
@@ -725,8 +514,6 @@ void Main::setupContent() {
 		BuildSectionButtons(builder);
 		builder.addSkip();
 		BuildInterfaceScale(builder);
-		BuildPremiumSection(builder);
-		BuildHelpSection(builder);
 
 		std::move(showFinished) | rpl::on_next([=] {
 			for (const auto &[id, entry] : *highlights) {
@@ -747,9 +534,6 @@ void Main::setupContent() {
 	session->api().reloadContactSignupSilent();
 	session->api().sensitiveContent().reload();
 	session->api().globalPrivacy().reload();
-	session->api().premium().reload();
-	session->data().cloudThemes().refresh();
-	session->faqSuggestions().request();
 }
 
 void Main::showFinished() {
@@ -800,8 +584,6 @@ const auto kMeta = BuildHelper({
 	builder.addSkip();
 
 	BuildInterfaceScale(builder);
-	BuildPremiumSection(builder);
-	BuildHelpSection(builder);
 });
 
 } // namespace

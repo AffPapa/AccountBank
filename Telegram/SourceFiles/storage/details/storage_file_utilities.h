@@ -110,10 +110,13 @@ private:
 
 };
 
+// A caller that must validate the payload before pruning a backup can pass
+// false, leaving both key_0/key_1 files untouched even after a valid envelope.
 bool ReadFile(
 	FileReadDescriptor &result,
 	const QString &name,
-	const QString &basePath);
+	const QString &basePath,
+	bool pruneAlternate = true);
 
 bool DecryptLocal(
 	EncryptedDescriptor &result,
@@ -124,7 +127,8 @@ bool ReadEncryptedFile(
 	FileReadDescriptor &result,
 	const QString &name,
 	const QString &basePath,
-	const MTP::AuthKeyPtr &key);
+	const MTP::AuthKeyPtr &key,
+	bool pruneAlternate = true);
 
 bool ReadEncryptedFile(
 	FileReadDescriptor &result,

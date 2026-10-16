@@ -21,11 +21,12 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "storage/storage_domain.h"
 #include "storage/storage_account.h"
 #include "storage/localstorage.h"
-#include "export/export_settings.h"
 #include "wallet/wallet_unlock.h"
 #include "wallet/wallet_vault.h"
 #include "window/notifications_manager.h"
 #include "window/window_controller.h"
+
+#include <QtWidgets/QMessageBox>
 
 namespace Main {
 
@@ -87,9 +88,15 @@ Storage::StartResult Domain::startWith(
 	if (result == Storage::StartResult::Success) {
 		activateAfterStarting();
 		Wallet::DropUnusedPasscode();
-		crl::on_main(&Core::App(), [=] { suggestExportIfNeeded(); });
 	} else {
 		Assert(!started());
+		if (result == Storage::StartResult::Failed) {
+			QMessageBox::critical(
+				nullptr,
+				u"AccountBank"_q,
+				u"AccountBank cannot read its local account data. The account key was not reset. Back up the AccountBank data folder before attempting repair."_q);
+			Core::Quit();
+		}
 	}
 	return result;
 }
@@ -109,11 +116,16 @@ bool Domain::tryPasscode(
 			if (Core::Quitting()) {
 				return;
 			}
+			if (cold && !started()) {
+				const auto result = startWith(std::move(derived));
+				if (result == Storage::StartResult::Failed) {
+					return; // Quitting; do not count storage failure as a bad passcode.
+				}
+				done(result == Storage::StartResult::Success);
+				return;
+			}
 			const auto correct = (cold == started())
 				? false
-				: cold
-				? (startWith(std::move(derived))
-					== Storage::StartResult::Success)
 				: _local->checkPasscode(std::move(derived));
 			done(correct);
 		}));
@@ -127,19 +139,6 @@ void Domain::finish() {
 	_accountToActivate = -1;
 	_active.reset(nullptr);
 	base::take(_accounts);
-}
-
-void Domain::suggestExportIfNeeded() {
-	Expects(started());
-
-	for (const auto &[index, account] : _accounts) {
-		if (const auto session = account->maybeSession()) {
-			const auto settings = session->local().readExportSettings();
-			if (const auto availableAt = settings.availableAt) {
-				session->data().suggestStartExport(availableAt);
-			}
-		}
-	}
 }
 
 void Domain::accountAddedInStorage(AccountWithIndex accountWithIndex) {

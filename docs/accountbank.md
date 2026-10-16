@@ -1,15 +1,15 @@
 # AccountBank
 
-AccountBank is an experimental, separate macOS fork of Telegram Desktop. It targets current Apple Silicon Macs. This repository does not contain a tested AccountBank app or a download.
+AccountBank is an experimental, separate macOS fork of Telegram Desktop. It targets current Apple Silicon Macs. A user opened the previous test build and logged into one real account; the newer minimal build and multi-account performance remain unverified. See [minimal-client-audit.md](minimal-client-audit.md).
 
 ## Current implementation
 
 - The macOS app uses the AccountBank name, bundle identifier, URL scheme, and application data folder. Development runs must also pass a dedicated `-workdir` inside the project workspace.
-- The source permits up to 30 account slots when adding accounts and reading saved account records. Real accounts, connection behavior, memory use, and sleep recovery have not been tested.
+- The source permits up to 30 account slots when adding accounts and reading saved account records. One real account login was confirmed by the user. Connection behavior, memory use, and sleep recovery for 5–30 accounts have not been tested.
 - Both chat composers hide the voice and round-video recording button and its guarded keyboard shortcuts. The underlying media code and incoming media handling remain present.
 - The unchanged upstream source compiled as an arm64 Debug baseline. The AccountBank changes also compiled as arm64 Debug. Local dependency preparation used a Rust build without ThinLTO because the bundled Rust toolchain failed to load proc macros with ThinLTO on this Mac. The local icon conversion used Pillow because `iconutil` rejected the upstream iconset.
-- An isolated startup attempt with a fresh workspace data directory aborted before the window opened. The local app bundle does not pass code-signature verification on the workspace filesystem, so runtime behavior is unverified.
-- The development build used Telegram Desktop's published test API credentials, which are unsuitable for users or release. Other removed-feature UI work has not started.
+- An isolated agent launch aborted during AppKit initialization. A tiny unrelated test `.app` aborted at the same AppKit call while its standalone executable succeeded, so that agent shell cannot establish whether the GUI works. The user previously launched a separate older test bundle and logged into one real account. The current Release bundle is locally ad-hoc signed, not notarized.
+- The earlier development build used Telegram Desktop's published test API credentials. The current arm64 Release test build uses the project's own credentials from ignored `accountbank-api.local.cmake`; never commit or print that file. The v11 test launcher verifies the archive and an ad-hoc signed app in a bounded temporary cache; graphical startup and multi-account performance still need manual testing. The minimal UI, media and blank-account restart changes are described in the audit document.
 
 ## Product boundary
 
