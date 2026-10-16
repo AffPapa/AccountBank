@@ -305,6 +305,7 @@ private:
 	void saveAs();
 	void downloadMedia();
 	void maybeAutoSaveTtlPhoto();
+	void maybeAutoSaveShownStory();
 	void saveCancel();
 	void showInFolder();
 	void forwardMedia();
