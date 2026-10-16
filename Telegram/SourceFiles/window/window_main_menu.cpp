@@ -21,6 +21,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/file_utilities.h"
 #include "core/click_handler_types.h"
 #include "data/data_changes.h"
+#include "data/data_channel.h"
 #include "data/data_document_media.h"
 #include "data/data_folder.h"
 #include "data/data_group_call.h"
@@ -583,6 +584,23 @@ void MainMenu::setupMenu() {
 		} else {
 			controller->showToast(
 				tr::lng_accountbank_archive_failed(tr::now));
+		}
+	});
+	addAction(
+		tr::lng_accountbank_cloud_archive(),
+		{ &st::menuIconSavedMessages }
+	)->setClickedCallback([=] {
+		auto &session = controller->session();
+		auto &archive = session.data().archive();
+		if (!archive.ensureCloudChannel()) {
+			controller->showToast(tr::lng_accountbank_cloud_failed(tr::now));
+		} else if (const auto id = archive.cloudChannelId()) {
+			const auto channel = session.data().channel(ChannelId(id));
+			channel->setAccessHash(archive.cloudAccessHash());
+			session.api().requestFullPeer(channel);
+			controller->showPeerHistory(channel);
+		} else {
+			controller->showToast(tr::lng_accountbank_cloud_creating(tr::now));
 		}
 	});
 

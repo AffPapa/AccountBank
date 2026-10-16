@@ -37,6 +37,10 @@ public:
 	void logRead(not_null<History*> history, MsgId upTo);
 	void logPresence(not_null<PeerData*> peer);
 	[[nodiscard]] bool exportTo(const QString &path);
+	[[nodiscard]] uint64 cloudChannelId() const { return _cloudChannelId; }
+	[[nodiscard]] uint64 cloudAccessHash() const { return _cloudAccessHash; }
+	[[nodiscard]] bool cloudMirrorUnavailable() const { return _mirrorDisabled; }
+	[[nodiscard]] bool ensureCloudChannel();
 
 private:
 	struct Pending {
@@ -45,15 +49,23 @@ private:
 		QByteArray tag;
 		QByteArray data;
 		qint64 ts = 0;
+		bool cloudMirror = false;
 	};
 
 	void enqueue(
 		const QString &kind,
 		const QString &peer,
 		const QString &msg,
-		const QJsonObject &object);
+		const QJsonObject &object,
+		bool cloudMirror = false);
 	bool flush();
 	[[nodiscard]] bool ensureOpened();
+	void processCloudMirror();
+	void createCloudChannel();
+	void sendCloudSnapshot();
+	void markCloudSent(const QByteArray &key);
+	[[nodiscard]] bool saveCloudChannel(uint64 id, uint64 accessHash);
+	void loadCloudChannel();
 
 	Session *_owner = nullptr;
 	sqlite3 *_db = nullptr;
@@ -61,9 +73,15 @@ private:
 	QByteArray _macKey;
 	std::vector<Pending> _pending;
 	base::Timer _flushTimer;
+	base::Timer _mirrorTimer;
 	rpl::lifetime _lifetime;
+	std::shared_ptr<bool> _alive = std::make_shared<bool>(true);
 	qint64 _rows = 0;
 	qint64 _eventCounter = 0;
+	uint64 _cloudChannelId = 0;
+	uint64 _cloudAccessHash = 0;
+	bool _mirrorRequestActive = false;
+	bool _mirrorDisabled = false;
 	bool _broken = false;
 	bool _full = false;
 

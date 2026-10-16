@@ -3043,10 +3043,10 @@ void Session::updateEditedMessage(const MTPMessage &data) {
 		Reactions::CheckUnknownForUnread(this, data);
 		return;
 	}
+	_archive->logEditSnapshot(existing);
 	if (existing->isLocalUpdateMedia() && data.type() == mtpc_message) {
 		updateExistingMessage(data.c_message());
 	}
-	_archive->logEditSnapshot(existing);
 	data.match([](const MTPDmessageEmpty &) {
 	}, [&](const MTPDmessageService &data) {
 		existing->applyEdition(data);

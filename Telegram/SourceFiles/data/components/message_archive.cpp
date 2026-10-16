@@ -10,6 +10,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/unixtime.h"
 #include "data/data_changes.h"
 #include "data/data_document.h"
+#include "data/data_channel.h"
 #include "data/data_media_types.h"
 #include "data/data_peer.h"
 #include "data/data_photo.h"
@@ -18,6 +19,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/history.h"
 #include "history/history_item.h"
 #include "main/main_session.h"
+#include "apiwrap.h"
 #include "mtproto/mtproto_auth_key.h"
 #include "storage/storage_account.h"
 
@@ -198,7 +200,8 @@ QJsonObject SerializeItem(not_null<HistoryItem*> item) {
 
 MessageArchive::MessageArchive(not_null<Session*> owner)
 : _owner(owner)
-, _flushTimer([=] { flush(); }) {
+, _flushTimer([=] { flush(); })
+, _mirrorTimer([=] { processCloudMirror(); }) {
 	_owner->newItemAdded(
 	) | rpl::on_next([=](not_null<HistoryItem*> item) {
 		logMessage(item);
@@ -212,6 +215,8 @@ MessageArchive::MessageArchive(not_null<Session*> owner)
 }
 
 MessageArchive::~MessageArchive() {
+	*_alive = false;
+	_mirrorTimer.cancel();
 	flush();
 	if (_db) {
 		sqlite3_close_v2(_db);
@@ -240,7 +245,13 @@ void MessageArchive::logEditSnapshot(not_null<HistoryItem*> item) {
 		u"edit"_q,
 		object.value(u"peer"_q).toString(),
 		object.value(u"msg"_q).toString(),
-		object);
+		object,
+		item->allowsMediaDownloadControls()
+			&& (!_cloudChannelId || item->history()->peer->id
+				!= peerFromChannel(ChannelId(_cloudChannelId))));
+	if (!flush()) {
+		LOG(("Archive: edit snapshot could not be saved."));
+	}
 }
 
 void MessageArchive::logDeleted(not_null<HistoryItem*> item) {
@@ -252,7 +263,13 @@ void MessageArchive::logDeleted(not_null<HistoryItem*> item) {
 		u"delete"_q,
 		object.value(u"peer"_q).toString(),
 		object.value(u"msg"_q).toString(),
-		object);
+		object,
+		item->allowsMediaDownloadControls()
+			&& (!_cloudChannelId || item->history()->peer->id
+				!= peerFromChannel(ChannelId(_cloudChannelId))));
+	if (!flush()) {
+		LOG(("Archive: deletion snapshot could not be saved."));
+	}
 }
 
 void MessageArchive::logRead(not_null<History*> history, MsgId upTo) {
@@ -277,7 +294,8 @@ void MessageArchive::enqueue(
 		const QString &kind,
 		const QString &peer,
 		const QString &msg,
-		const QJsonObject &object) {
+		const QJsonObject &object,
+		bool cloudMirror) {
 	if (_broken || _full) {
 		return;
 	} else if (!ensureOpened()) {
@@ -306,6 +324,7 @@ void MessageArchive::enqueue(
 		.tag = encrypted->tag,
 		.data = encrypted->data,
 		.ts = ts,
+		.cloudMirror = cloudMirror,
 	});
 	if (_pending.size() >= kMaxPending) {
 		flush();
@@ -353,17 +372,36 @@ bool MessageArchive::ensureOpened() {
 	}
 	_db = db;
 	QFile::setPermissions(path, QFileDevice::ReadOwner | QFileDevice::WriteOwner);
-	auto *error = static_cast<char*>(nullptr);
-	sqlite3_exec(_db, "PRAGMA journal_mode=WAL;", nullptr, nullptr, &error);
-	sqlite3_exec(_db, "PRAGMA busy_timeout=5000;", nullptr, nullptr, &error);
-	sqlite3_exec(
+	sqlite3_busy_timeout(_db, 5000);
+	sqlite3_exec(_db, "PRAGMA journal_mode=WAL;", nullptr, nullptr, nullptr);
+	if (sqlite3_exec(
 		_db,
 		"CREATE TABLE IF NOT EXISTS records("
 		"key BLOB PRIMARY KEY, nonce BLOB, tag BLOB, data BLOB, ts INTEGER"
 		") WITHOUT ROWID;",
 		nullptr,
 		nullptr,
-		&error);
+		nullptr) != SQLITE_OK) {
+		_broken = true;
+		return false;
+	}
+	if (sqlite3_exec(
+			_db,
+			"CREATE TABLE IF NOT EXISTS cloud_mirror("
+			"key BLOB PRIMARY KEY, sent INTEGER NOT NULL DEFAULT 0"
+			") WITHOUT ROWID;"
+			"CREATE TABLE IF NOT EXISTS cloud_config("
+			"key TEXT PRIMARY KEY, nonce BLOB, tag BLOB, data BLOB"
+			") WITHOUT ROWID;",
+			nullptr,
+			nullptr,
+			nullptr) != SQLITE_OK) {
+		_mirrorDisabled = true;
+		LOG(("Archive: cloud mirror tables unavailable."));
+	} else {
+		loadCloudChannel();
+		_mirrorTimer.callOnce(crl::time(1000));
+	}
 	auto *stmt = static_cast<sqlite3_stmt*>(nullptr);
 	if (sqlite3_prepare_v2(
 			_db,
@@ -378,17 +416,14 @@ bool MessageArchive::ensureOpened() {
 	if (stmt) {
 		sqlite3_finalize(stmt);
 	}
-	if (error) {
-		sqlite3_free(error);
-	}
 	return true;
 }
 
 bool MessageArchive::flush() {
-	if (_pending.empty()) {
-		return true;
-	} else if (_broken) {
+	if (_broken) {
 		return false;
+	} else if (_pending.empty()) {
+		return true;
 	} else if (!_db && !ensureOpened()) {
 		return false;
 	}
@@ -405,8 +440,21 @@ bool MessageArchive::flush() {
 		_broken = true;
 		return false;
 	}
+	auto *mirrorStmt = static_cast<sqlite3_stmt*>(nullptr);
+	if (!_mirrorDisabled && sqlite3_prepare_v2(
+			_db,
+			"INSERT OR IGNORE INTO cloud_mirror(key) VALUES(?)",
+			-1,
+			&mirrorStmt,
+			nullptr) != SQLITE_OK) {
+		_mirrorDisabled = true;
+		LOG(("Archive: cloud mirror queue unavailable."));
+	}
 	if (sqlite3_exec(_db, "BEGIN", nullptr, nullptr, nullptr) != SQLITE_OK) {
 		sqlite3_finalize(stmt);
+		if (mirrorStmt) {
+			sqlite3_finalize(mirrorStmt);
+		}
 		_broken = true;
 		return false;
 	}
@@ -436,8 +484,25 @@ bool MessageArchive::flush() {
 			break;
 		}
 		_rows += sqlite3_changes(_db);
+		if (record.cloudMirror && mirrorStmt && !_mirrorDisabled) {
+			sqlite3_reset(mirrorStmt);
+			sqlite3_clear_bindings(mirrorStmt);
+			sqlite3_bind_blob(
+				mirrorStmt,
+				1,
+				record.key.constData(),
+				record.key.size(),
+				SQLITE_TRANSIENT);
+			if (sqlite3_step(mirrorStmt) != SQLITE_DONE) {
+				_mirrorDisabled = true;
+				LOG(("Archive: cloud mirror queue write failed."));
+			}
+		}
 	}
 	sqlite3_finalize(stmt);
+	if (mirrorStmt) {
+		sqlite3_finalize(mirrorStmt);
+	}
 	if (ok) {
 		ok = (sqlite3_exec(_db, "COMMIT", nullptr, nullptr, nullptr)
 			== SQLITE_OK);
@@ -451,6 +516,9 @@ bool MessageArchive::flush() {
 		return false;
 	}
 	_pending.clear();
+	if (!_mirrorDisabled) {
+		_mirrorTimer.callOnce(crl::time(1000));
+	}
 	return true;
 }
 
@@ -519,6 +587,294 @@ bool MessageArchive::exportTo(const QString &path) {
 	}
 	LOG(("Archive: exported %1 records.").arg(rows));
 	return true;
+}
+
+void MessageArchive::loadCloudChannel() {
+	auto *stmt = static_cast<sqlite3_stmt*>(nullptr);
+	if (sqlite3_prepare_v2(
+			_db,
+			"SELECT nonce,tag,data FROM cloud_config WHERE key='channel'",
+			-1,
+			&stmt,
+			nullptr) != SQLITE_OK) {
+		_mirrorDisabled = true;
+		return;
+	}
+	const auto result = sqlite3_step(stmt);
+	if (result == SQLITE_ROW) {
+		const auto field = [&](int column) {
+			return QByteArray(
+				static_cast<const char*>(sqlite3_column_blob(stmt, column)),
+				sqlite3_column_bytes(stmt, column));
+		};
+		const auto plain = DecryptRecord(
+			_aesKey, field(0), field(1), field(2));
+		const auto object = QJsonDocument::fromJson(plain).object();
+		bool idOk = false;
+		bool hashOk = false;
+		const auto id = object.value(u"id"_q).toString().toULongLong(&idOk);
+		const auto hash = object.value(u"hash"_q).toString().toULongLong(&hashOk);
+		if (idOk && hashOk && id && hash) {
+			_cloudChannelId = id;
+			_cloudAccessHash = hash;
+		} else {
+			_mirrorDisabled = true;
+			LOG(("Archive: cloud destination could not be read."));
+		}
+	} else if (result != SQLITE_DONE) {
+		_mirrorDisabled = true;
+	}
+	sqlite3_finalize(stmt);
+}
+
+bool MessageArchive::saveCloudChannel(uint64 id, uint64 accessHash) {
+	auto object = QJsonObject();
+	object.insert(u"id"_q, QString::number(id));
+	object.insert(u"hash"_q, QString::number(accessHash));
+	const auto encrypted = EncryptRecord(
+		_aesKey, QJsonDocument(object).toJson(QJsonDocument::Compact));
+	if (!encrypted) {
+		return false;
+	}
+	auto *stmt = static_cast<sqlite3_stmt*>(nullptr);
+	if (sqlite3_prepare_v2(
+			_db,
+			"INSERT OR REPLACE INTO cloud_config(key,nonce,tag,data) "
+			"VALUES('channel',?,?,?)",
+			-1,
+			&stmt,
+			nullptr) != SQLITE_OK) {
+		return false;
+	}
+	sqlite3_bind_blob(
+		stmt, 1, encrypted->nonce.constData(), encrypted->nonce.size(), SQLITE_TRANSIENT);
+	sqlite3_bind_blob(
+		stmt, 2, encrypted->tag.constData(), encrypted->tag.size(), SQLITE_TRANSIENT);
+	sqlite3_bind_blob(
+		stmt, 3, encrypted->data.constData(), encrypted->data.size(), SQLITE_TRANSIENT);
+	const auto saved = (sqlite3_step(stmt) == SQLITE_DONE);
+	sqlite3_finalize(stmt);
+	if (saved) {
+		_cloudChannelId = id;
+		_cloudAccessHash = accessHash;
+	}
+	return saved;
+}
+
+void MessageArchive::processCloudMirror() {
+	if (_mirrorDisabled || _mirrorRequestActive || !_db || _broken) {
+		return;
+	}
+	auto *stmt = static_cast<sqlite3_stmt*>(nullptr);
+	if (sqlite3_prepare_v2(
+			_db,
+			"SELECT 1 FROM cloud_mirror WHERE sent=0 LIMIT 1",
+			-1,
+			&stmt,
+			nullptr) != SQLITE_OK) {
+		_mirrorDisabled = true;
+		return;
+	}
+	const auto pending = (sqlite3_step(stmt) == SQLITE_ROW);
+	sqlite3_finalize(stmt);
+	if (!pending) {
+		return;
+	}
+	if (_cloudChannelId && _cloudAccessHash) {
+		sendCloudSnapshot();
+	} else {
+		createCloudChannel();
+	}
+}
+
+bool MessageArchive::ensureCloudChannel() {
+	if (_broken || !ensureOpened() || _mirrorDisabled) {
+		return false;
+	}
+	if (!_cloudChannelId && !_mirrorRequestActive) {
+		createCloudChannel();
+	}
+	return true;
+}
+
+void MessageArchive::createCloudChannel() {
+	_mirrorRequestActive = true;
+	const auto alive = std::weak_ptr<bool>(_alive);
+	using Flag = MTPchannels_CreateChannel::Flag;
+	_owner->session().api().request(MTPchannels_CreateChannel(
+		MTP_flags(Flag::f_broadcast),
+		MTP_string(u"AccountBank Archive"_q),
+		MTP_string(u"Private copies of messages before edits and deletions"_q),
+		MTPInputGeoPoint(),
+		MTPstring(),
+		MTP_int(0)
+	)).done([=](const MTPUpdates &result) {
+		if (alive.expired()) {
+			return;
+		}
+		_mirrorRequestActive = false;
+		auto id = uint64(0);
+		const auto inspect = [&](const QVector<MTPChat> &chats) {
+			for (const auto &chat : chats) {
+				if (chat.type() == mtpc_channel) {
+					id = chat.c_channel().vid().v;
+					break;
+				}
+			}
+		};
+		result.match(
+			[&](const MTPDupdates &data) { inspect(data.vchats().v); },
+			[&](const MTPDupdatesCombined &data) {
+				inspect(data.vchats().v);
+			},
+			[&](const auto &) {});
+		_owner->session().api().applyUpdates(result);
+		if (!id) {
+			_mirrorDisabled = true;
+			LOG(("Archive: created channel was absent from updates."));
+			return;
+		}
+		const auto channel = _owner->session().data().channel(ChannelId(id));
+		if (!channel->accessHash()
+			|| !saveCloudChannel(id, channel->accessHash())) {
+			_mirrorDisabled = true;
+			LOG(("Archive: created channel could not be saved."));
+			return;
+		}
+		_mirrorTimer.callOnce(crl::time(0));
+	}).fail([=](const MTP::Error &error) {
+		if (alive.expired()) {
+			return;
+		}
+		_mirrorRequestActive = false;
+		_mirrorDisabled = true;
+		LOG(("Archive: channel creation failed: %1.").arg(error.type()));
+	}).send();
+}
+
+void MessageArchive::markCloudSent(const QByteArray &key) {
+	auto *stmt = static_cast<sqlite3_stmt*>(nullptr);
+	if (sqlite3_prepare_v2(
+			_db,
+			"UPDATE cloud_mirror SET sent=1 WHERE key=?",
+			-1,
+			&stmt,
+			nullptr) != SQLITE_OK) {
+		_mirrorDisabled = true;
+		return;
+	}
+	sqlite3_bind_blob(stmt, 1, key.constData(), key.size(), SQLITE_TRANSIENT);
+	const auto saved = (sqlite3_step(stmt) == SQLITE_DONE);
+	sqlite3_finalize(stmt);
+	if (!saved) {
+		_mirrorDisabled = true;
+		LOG(("Archive: cloud delivery could not be recorded."));
+	} else {
+		_mirrorTimer.callOnce(crl::time(0));
+	}
+}
+
+void MessageArchive::sendCloudSnapshot() {
+	auto *stmt = static_cast<sqlite3_stmt*>(nullptr);
+	if (sqlite3_prepare_v2(
+			_db,
+			"SELECT r.key,r.nonce,r.tag,r.data FROM cloud_mirror m "
+			"JOIN records r ON r.key=m.key WHERE m.sent=0 "
+			"ORDER BY r.ts LIMIT 1",
+			-1,
+			&stmt,
+			nullptr) != SQLITE_OK) {
+		_mirrorDisabled = true;
+		return;
+	}
+	if (sqlite3_step(stmt) != SQLITE_ROW) {
+		sqlite3_finalize(stmt);
+		return;
+	}
+	const auto field = [&](int column) {
+		return QByteArray(
+			static_cast<const char*>(sqlite3_column_blob(stmt, column)),
+			sqlite3_column_bytes(stmt, column));
+	};
+	const auto key = field(0);
+	const auto plain = DecryptRecord(
+		_aesKey, field(1), field(2), field(3));
+	sqlite3_finalize(stmt);
+	const auto object = QJsonDocument::fromJson(plain).object();
+	if (plain.isEmpty() || object.isEmpty()) {
+		_mirrorDisabled = true;
+		LOG(("Archive: cloud snapshot could not be decrypted."));
+		return;
+	}
+	const auto label = (object.value(u"kind"_q).toString() == u"edit"_q)
+		? u"До изменения"_q
+		: u"Перед удалением"_q;
+	auto text = label
+		+ u"\nЧат ID: "_q + object.value(u"peer"_q).toString()
+		+ u"\nСообщение ID: "_q + QString::number(
+			qint64(object.value(u"msg"_q).toDouble()))
+		+ u"\nДата: "_q + QDateTime::fromSecsSinceEpoch(
+			qint64(object.value(u"date"_q).toDouble())
+		).toString(Qt::ISODate)
+		+ u"\n\n"_q + object.value(u"text"_q).toString();
+	if (object.contains(u"photo"_q) || object.contains(u"document"_q)) {
+		text += u"\n\n[Медиа не скопировано; метаданные в локальном архиве]"_q;
+	}
+	if (text.size() > 3500) {
+		text = text.left(3500)
+			+ u"\n\n[Текст сокращён; полная версия в локальном архиве]"_q;
+	}
+	const auto randomBytes = HmacSha256(_macKey, key + " cloud mirror");
+	if (randomBytes.size() != 32) {
+		_mirrorDisabled = true;
+		return;
+	}
+	auto randomId = uint64(0);
+	for (auto i = 0; i != 8; ++i) {
+		randomId |= uint64(uint8(randomBytes[i])) << (i * 8);
+	}
+	if (!randomId) {
+		randomId = 1;
+	}
+	_mirrorRequestActive = true;
+	const auto alive = std::weak_ptr<bool>(_alive);
+	using Flag = MTPmessages_SendMessage::Flag;
+	_owner->session().api().request(MTPmessages_SendMessage(
+		MTP_flags(Flag::f_no_webpage | Flag::f_silent),
+		MTP_inputPeerChannel(
+			MTP_long(_cloudChannelId), MTP_long(_cloudAccessHash)),
+		MTPInputReplyTo(),
+		MTP_string(text),
+		MTP_long(randomId),
+		MTPReplyMarkup(),
+		MTPVector<MTPMessageEntity>(),
+		MTP_int(0),
+		MTP_int(0),
+		MTPInputPeer(),
+		MTPInputQuickReplyShortcut(),
+		MTP_long(0),
+		MTP_long(0),
+		MTPSuggestedPost(),
+		MTPInputRichMessage()
+	)).done([=](const MTPUpdates &updates) {
+		if (alive.expired()) {
+			return;
+		}
+		_mirrorRequestActive = false;
+		_owner->session().api().applyUpdates(updates);
+		markCloudSent(key);
+	}).fail([=](const MTP::Error &error) {
+		if (alive.expired()) {
+			return;
+		}
+		_mirrorRequestActive = false;
+		if (error.type() == u"RANDOM_ID_DUPLICATE"_q) {
+			markCloudSent(key);
+		} else {
+			LOG(("Archive: cloud send failed: %1.").arg(error.type()));
+			_mirrorTimer.callOnce(crl::time(5 * 60 * 1000));
+		}
+	}).send();
 }
 
 } // namespace Data

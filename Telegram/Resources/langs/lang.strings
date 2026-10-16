@@ -9194,5 +9194,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_accountbank_export_archive" = "Export message archive";
 "lng_accountbank_archive_exported" = "Archive exported: {path}";
 "lng_accountbank_archive_failed" = "Archive export failed.";
+"lng_accountbank_cloud_archive" = "Open archive chat";
+"lng_accountbank_cloud_creating" = "Creating a private archive channel. Open this menu again in a moment.";
+"lng_accountbank_cloud_failed" = "Archive channel is unavailable. Local archive is still active.";
 
 // Keys finished
