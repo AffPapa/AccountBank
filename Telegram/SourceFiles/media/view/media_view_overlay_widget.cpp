@@ -206,6 +206,7 @@ constexpr auto kLeftSiblingTextureIndex = 1;
 constexpr auto kRightSiblingTextureIndex = 2;
 constexpr auto kStoriesControlsOpacity = 1.;
 constexpr auto kStorySavePromoDuration = 3 * crl::time(1000);
+constexpr auto kTtlSavedToastDuration = 5 * crl::time(1000);
 
 class PipDelegate final : public Pip::Delegate {
 public:
@@ -3559,10 +3560,21 @@ void OverlayWidget::maybeAutoSaveTtlPhoto() {
 	QDir().mkpath(dir);
 	// WHY: the client deletes TTL photos after viewing, so a named copy is kept.
 	const auto toName = dir + u"/ttl_photo_%1.jpg"_q.arg(_photo->id);
-	if (QFile::exists(toName) || !_photoMedia->saveToFile(toName)) {
+	if (QFileInfo(toName).size() > 0) {
+		return;
+	} else if (!_photoMedia->saveToFile(toName)) {
+		QFile(toName).remove();
+		LOG(("TTL photo auto-save failed: %1").arg(toName));
 		return;
 	}
-	showSaveMsgToast(toName, tr::lng_mediaview_saved_to);
+	showSaveMsgToastWith(
+		toName,
+		tr::lng_mediaview_ttl_saved_to(
+			tr::now,
+			lt_path,
+			tr::link(toName, "internal:show_saved_message"),
+			tr::marked),
+		kTtlSavedToastDuration);
 }
 
 void OverlayWidget::saveCancel() {
@@ -7853,6 +7865,11 @@ void OverlayWidget::setSession(not_null<Main::Session*> session) {
 		}
 	}, _sessionLifetime);
 
+	session->downloaderTaskFinished(
+	) | rpl::on_next([=] {
+		maybeAutoSaveTtlPhoto();
+	}, _sessionLifetime);
+
 	session->data().documentLoadProgress(
 	) | rpl::filter([=] {
 		return !isHidden();
@@ -8846,6 +8863,7 @@ Window::SessionController *OverlayWidget::findWindow(bool switchTo) const {
 
 // #TODO unite and check
 void OverlayWidget::clearBeforeHide() {
+	maybeAutoSaveTtlPhoto();
 	checkSingleViewMediaBurn();
 	_message = nullptr;
 	_sharedMedia = nullptr;
