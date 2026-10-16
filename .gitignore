@@ -2,6 +2,7 @@
 /out-release/
 /out-size-oz/
 /out-size-os/
+/out-*/
 Debug/
 Release/
 /ThirdParty/

@@ -26,7 +26,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <openssl/hmac.h>
 #include <openssl/rand.h>
 #include <QDir>
+#include <QDateTime>
 #include <QFile>
+#include <QFileInfo>
+#include <QSaveFile>
 #include <QJsonDocument>
 #include <QJsonObject>
 
@@ -38,14 +41,16 @@ constexpr auto kFlushDelay = crl::time(2000);
 QByteArray HmacSha256(const QByteArray &key, const QByteArray &message) {
 	auto out = QByteArray(32, Qt::Uninitialized);
 	auto outLen = unsigned(0);
-	HMAC(
+	if (!HMAC(
 		EVP_sha256(),
 		key.constData(),
 		key.size(),
 		reinterpret_cast<const unsigned char*>(message.constData()),
 		message.size(),
 		reinterpret_cast<unsigned char*>(out.data()),
-		&outLen);
+		&outLen) || outLen != 32) {
+		return QByteArray();
+	}
 	return out;
 }
 
@@ -60,9 +65,11 @@ std::optional<Encrypted> EncryptRecord(
 		const QByteArray &plain) {
 	auto result = Encrypted();
 	result.nonce = QByteArray(12, Qt::Uninitialized);
-	RAND_bytes(
+	if (RAND_bytes(
 		reinterpret_cast<unsigned char*>(result.nonce.data()),
-		result.nonce.size());
+		result.nonce.size()) != 1) {
+		return std::nullopt;
+	}
 	result.data = QByteArray(plain.size() + 16, Qt::Uninitialized);
 	result.tag = QByteArray(16, Qt::Uninitialized);
 	const auto ctx = EVP_CIPHER_CTX_new();
@@ -276,23 +283,25 @@ void MessageArchive::enqueue(
 	} else if (!ensureOpened()) {
 		return;
 	}
-	const auto ts = crl::now();
+	const auto ts = QDateTime::currentMSecsSinceEpoch();
 	auto full = object;
 	full.insert(u"kind"_q, kind);
 	full.insert(u"ts"_q, double(ts));
 	const auto material = kind + ':' + peer + ':' + msg
 		+ ((kind == u"message"_q)
 			? QString()
-			: (':' + QString::number(ts)));
+			: (':' + QString::number(ts)
+				+ ':' + QString::number(_eventCounter++)));
 	const auto encrypted = EncryptRecord(
 		_aesKey,
 		QJsonDocument(full).toJson(QJsonDocument::Compact));
-	if (!encrypted) {
+	const auto indexKey = HmacSha256(_macKey, material.toUtf8());
+	if (!encrypted || indexKey.size() != 32) {
 		LOG(("Archive: encryption failed."));
 		return;
 	}
 	_pending.push_back({
-		.key = HmacSha256(_macKey, material.toUtf8()).left(16),
+		.key = indexKey.left(16),
 		.nonce = encrypted->nonce,
 		.tag = encrypted->tag,
 		.data = encrypted->data,
@@ -320,6 +329,10 @@ bool MessageArchive::ensureOpened() {
 		keyBytes.size());
 	_aesKey = HmacSha256(keyData, QByteArray("AccountBank archive v1"));
 	_macKey = HmacSha256(keyData, QByteArray("AccountBank archive index v1"));
+	if (_aesKey.size() != 32 || _macKey.size() != 32) {
+		_broken = true;
+		return false;
+	}
 
 	const auto folder = _owner->session().local().accountFolder();
 	QDir().mkpath(folder);
@@ -371,14 +384,13 @@ bool MessageArchive::ensureOpened() {
 	return true;
 }
 
-void MessageArchive::flush() {
+bool MessageArchive::flush() {
 	if (_pending.empty()) {
-		return;
+		return true;
+	} else if (_broken) {
+		return false;
 	} else if (!_db && !ensureOpened()) {
-		if (int(_pending.size()) >= kMaxPending) {
-			_pending.clear();
-		}
-		return;
+		return false;
 	}
 	auto *stmt = static_cast<sqlite3_stmt*>(nullptr);
 	if (sqlite3_prepare_v2(
@@ -391,10 +403,15 @@ void MessageArchive::flush() {
 		LOG(("Archive: prepare failed: %1").arg(
 			QString::fromUtf8(sqlite3_errmsg(_db))));
 		_broken = true;
-		_pending.clear();
-		return;
+		return false;
 	}
-	sqlite3_exec(_db, "BEGIN", nullptr, nullptr, nullptr);
+	if (sqlite3_exec(_db, "BEGIN", nullptr, nullptr, nullptr) != SQLITE_OK) {
+		sqlite3_finalize(stmt);
+		_broken = true;
+		return false;
+	}
+	auto ok = true;
+	const auto previousRows = _rows;
 	for (const auto &record : _pending) {
 		if (_rows >= kMaxRows) {
 			if (!_full) {
@@ -414,17 +431,31 @@ void MessageArchive::flush() {
 		sqlite3_bind_blob(
 			stmt, 4, record.data.constData(), record.data.size(), SQLITE_TRANSIENT);
 		sqlite3_bind_int64(stmt, 5, record.ts);
-		if (sqlite3_step(stmt) == SQLITE_DONE) {
-			++_rows;
+		if (sqlite3_step(stmt) != SQLITE_DONE) {
+			ok = false;
+			break;
 		}
+		_rows += sqlite3_changes(_db);
 	}
-	sqlite3_exec(_db, "COMMIT", nullptr, nullptr, nullptr);
 	sqlite3_finalize(stmt);
+	if (ok) {
+		ok = (sqlite3_exec(_db, "COMMIT", nullptr, nullptr, nullptr)
+			== SQLITE_OK);
+	}
+	if (!ok) {
+		sqlite3_exec(_db, "ROLLBACK", nullptr, nullptr, nullptr);
+		_rows = previousRows;
+		LOG(("Archive: database write failed: %1").arg(
+			QString::fromUtf8(sqlite3_errmsg(_db))));
+		_broken = true;
+		return false;
+	}
 	_pending.clear();
+	return true;
 }
 
 bool MessageArchive::exportTo(const QString &path) {
-	if (!ensureOpened() || _broken) {
+	if (_broken || !flush() || !ensureOpened()) {
 		return false;
 	}
 	auto *stmt = static_cast<sqlite3_stmt*>(nullptr);
@@ -441,15 +472,27 @@ bool MessageArchive::exportTo(const QString &path) {
 	const auto guard = gsl::finally([&] {
 		sqlite3_finalize(stmt);
 	});
-	auto file = QFile(path);
-	if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-		LOG(("Archive: export open failed: %1").arg(path));
+	if (!QDir().mkpath(QFileInfo(path).absolutePath())) {
+		LOG(("Archive: export directory could not be created."));
 		return false;
 	}
-	file.write("[");
+	auto file = QSaveFile(path);
+	if (!file.open(QIODevice::WriteOnly)
+		|| !file.setPermissions(
+			QFileDevice::ReadOwner | QFileDevice::WriteOwner)) {
+		LOG(("Archive: export file could not be opened securely."));
+		return false;
+	}
+	const auto write = [&](const QByteArray &bytes) {
+		return file.write(bytes) == bytes.size();
+	};
+	if (!write("[")) {
+		return false;
+	}
 	auto first = true;
 	auto rows = 0;
-	while (sqlite3_step(stmt) == SQLITE_ROW) {
+	auto result = int();
+	while ((result = sqlite3_step(stmt)) == SQLITE_ROW) {
 		const auto nonce = QByteArray(
 			static_cast<const char*>(sqlite3_column_blob(stmt, 0)),
 			sqlite3_column_bytes(stmt, 0));
@@ -461,17 +504,20 @@ bool MessageArchive::exportTo(const QString &path) {
 			sqlite3_column_bytes(stmt, 2));
 		const auto plain = DecryptRecord(_aesKey, nonce, tag, data);
 		if (plain.isEmpty()) {
-			LOG(("Archive: export skipped a corrupted record."));
-			continue;
+			LOG(("Archive: export stopped at a corrupted record."));
+			return false;
 		}
-		file.write(first ? "" : ",");
+		if ((!first && !write(",")) || !write(plain)) {
+			return false;
+		}
 		first = false;
-		file.write(plain);
 		++rows;
 	}
-	file.write("]");
-	file.close();
-	LOG(("Archive: exported %1 records to %2").arg(rows).arg(path));
+	if (result != SQLITE_DONE || !write("]") || !file.commit()) {
+		LOG(("Archive: export failed before completion."));
+		return false;
+	}
+	LOG(("Archive: exported %1 records.").arg(rows));
 	return true;
 }
 

@@ -52,7 +52,7 @@ private:
 		const QString &peer,
 		const QString &msg,
 		const QJsonObject &object);
-	void flush();
+	bool flush();
 	[[nodiscard]] bool ensureOpened();
 
 	Session *_owner = nullptr;
@@ -63,6 +63,7 @@ private:
 	base::Timer _flushTimer;
 	rpl::lifetime _lifetime;
 	qint64 _rows = 0;
+	qint64 _eventCounter = 0;
 	bool _broken = false;
 	bool _full = false;
 

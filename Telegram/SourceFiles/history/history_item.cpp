@@ -3311,10 +3311,12 @@ void HistoryItem::markServerDeleted() {
 		return;
 	}
 	_serverDeleted = true;
-	auto text = TextWithEntities();
-	text.text = tr::lng_accountbank_deleted_marker(tr::now)
-		+ '\n'
-		+ originalText().text;
+	auto text = originalText();
+	const auto prefix = tr::lng_accountbank_deleted_marker(tr::now) + '\n';
+	for (auto &entity : text.entities) {
+		entity.shiftRight(prefix.size());
+	}
+	text.text.prepend(prefix);
 	setText(std::move(text));
 	markContentsRead(false);
 	history()->owner().requestItemResize(this);
