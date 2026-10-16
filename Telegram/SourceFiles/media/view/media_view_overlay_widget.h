@@ -304,6 +304,7 @@ private:
 	void toMessage();
 	void saveAs();
 	void downloadMedia();
+	void maybeAutoSaveTtlPhoto();
 	void saveCancel();
 	void showInFolder();
 	void forwardMedia();

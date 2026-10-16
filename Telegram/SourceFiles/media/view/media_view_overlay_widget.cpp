@@ -1650,6 +1650,7 @@ bool OverlayWidget::computeSaveButtonVisible() const {
 }
 
 void OverlayWidget::checkForSaveLoaded() {
+	maybeAutoSaveTtlPhoto();
 	if (_savePhotoVideoWhenLoaded == SavePhotoVideo::None) {
 		return;
 	} else if (!_photo
@@ -3535,6 +3536,35 @@ void OverlayWidget::downloadMedia() {
 	}
 }
 
+void OverlayWidget::maybeAutoSaveTtlPhoto() {
+	const auto media = _message ? _message->media() : nullptr;
+	if (!_photo
+		|| _photo->hasVideo()
+		|| !_photoMedia->loaded()
+		|| !media
+		|| media->photo() != _photo
+		|| !media->ttlSeconds()) {
+		return;
+	}
+	const auto &settings = Core::App().settings();
+	const auto base = (!settings.askDownloadPath()
+		&& !settings.downloadPath().isEmpty()
+		&& settings.downloadPath() != FileDialog::Tmp())
+			? settings.downloadPath()
+			: File::DefaultDownloadPath(&_photo->session());
+	if (base.isEmpty()) {
+		return;
+	}
+	const auto dir = QDir(base).filePath(u"ttl"_q);
+	QDir().mkpath(dir);
+	// WHY: the client deletes TTL photos after viewing, so a named copy is kept.
+	const auto toName = dir + u"/ttl_photo_%1.jpg"_q.arg(_photo->id);
+	if (QFile::exists(toName) || !_photoMedia->saveToFile(toName)) {
+		return;
+	}
+	showSaveMsgToast(toName, tr::lng_mediaview_saved_to);
+}
+
 void OverlayWidget::saveCancel() {
 	if (_document && _document->loading()) {
 		_document->cancel();
@@ -4673,6 +4703,7 @@ void OverlayWidget::displayPhoto(
 	}
 	contentSizeChanged();
 	refreshFromLabel();
+	maybeAutoSaveTtlPhoto();
 	displayFinished(activation);
 }
 
