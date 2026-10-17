@@ -76,6 +76,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "api/api_updates.h"
 #include "mtproto/mtproto_config.h"
 #include "history/history.h"
+#include "history/admin_log/history_admin_log_section.h"
 #include "history/history_item_helpers.h" // GetErrorForSending.
 #include "history/history_item_components.h"
 #include "history/view/controls/history_view_forward_panel.h"
@@ -1909,6 +1910,32 @@ void Filler::fillHistoryActions() {
 	addInfo();
 	addViewAsTopics();
 	addManageChat();
+	if (const auto channel = _peer->asChannel()) {
+		if (channel->canViewAdmins()) {
+			const auto controller = _controller;
+			_addAction(tr::lng_manage_peer_administrators(tr::now), [=] {
+				ParticipantsBoxController::Start(
+					controller,
+					channel,
+					ParticipantsBoxController::Role::Admins);
+			}, &st::menuIconAdmin);
+		}
+		if (channel->hasAdminRights() || channel->amCreator()) {
+			const auto controller = _controller;
+			_addAction(tr::lng_manage_peer_recent_actions(tr::now), [=] {
+				controller->showSection(
+					std::make_shared<AdminLog::SectionMemento>(channel));
+			}, &st::menuIconGroupLog);
+		}
+	} else if (const auto chat = _peer->asChat(); chat && chat->amIn()) {
+		const auto controller = _controller;
+		_addAction(tr::lng_manage_peer_administrators(tr::now), [=] {
+			ParticipantsBoxController::Start(
+				controller,
+				chat,
+				ParticipantsBoxController::Role::Admins);
+		}, &st::menuIconAdmin);
+	}
 	addSupportInfo();
 	addToggleNoForwards();
 	addViewDiscussion();
