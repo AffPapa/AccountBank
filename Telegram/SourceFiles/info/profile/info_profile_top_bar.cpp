@@ -22,6 +22,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "boxes/report_messages_box.h"
 #include "chat_helpers/stickers_lottie.h"
 #include "core/application.h"
+#include "core/core_settings.h"
 #include "core/shortcuts.h"
 #include "data/components/recent_shared_media_gifts.h"
 #include "data/data_birthday.h"
@@ -604,6 +605,10 @@ TopBar::TopBar(
 }
 
 void TopBar::setupBirthdayEffect() {
+	if (Core::App().settings().readPref<bool>(
+			"accountbank-hide-birthday-suggestions")) {
+		return;
+	}
 	const auto user = _peer->asUser();
 	if (!user || !Data::IsBirthdayToday(user->birthday())) {
 		return;

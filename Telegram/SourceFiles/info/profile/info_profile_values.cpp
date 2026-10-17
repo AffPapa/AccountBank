@@ -12,6 +12,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "info/profile/info_profile_phone_menu.h"
 #include "info/profile/info_profile_badge.h"
 #include "core/application.h"
+#include "core/core_settings.h"
 #include "core/click_handler_types.h"
 #include "countries/countries_instance.h"
 #include "main/main_session.h"
@@ -28,8 +29,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_message_reactions.h"
 #include "data/data_folder.h"
 #include "data/data_changes.h"
-#include "data/stickers/data_custom_emoji.h"
-#include "chat_helpers/stickers_emoji_pack.h"
 #include "data/data_channel.h"
 #include "data/data_chat.h"
 #include "data/data_user.h"
@@ -763,39 +762,21 @@ rpl::producer<QString> BirthdayLabelText(
 		rpl::producer<Data::Birthday> birthday) {
 	return std::move(birthday) | rpl::map([](Data::Birthday value) {
 		return rpl::conditional(
-			Data::IsBirthdayTodayValue(value),
+			Data::IsBirthdayTodayValue(value) | rpl::map([](bool today) {
+				return today && !Core::App().settings().readPref<bool>(
+					"accountbank-hide-birthday-suggestions");
+			}),
 			tr::lng_info_birthday_today_label(),
 			tr::lng_info_birthday_label());
 	}) | rpl::flatten_latest();
 }
 
 rpl::producer<TextWithEntities> BirthdayValueMarkedText(
-		not_null<UserData*> user,
+		not_null<UserData*>,
 		rpl::producer<Data::Birthday> birthday) {
-	const auto session = &user->session();
-	const auto cake = Data::BirthdayCake();
-	const auto emoji = Ui::Emoji::Find(cake);
-	return rpl::combine(
-		BirthdayValueText(std::move(birthday)),
-		rpl::single(rpl::empty) | rpl::then(
-			session->emojiStickersPack().refreshed())
-	) | rpl::map([=](const QString &text, const auto &) {
-		auto result = TextWithEntities{ text };
-		const auto position = emoji ? text.indexOf(cake) : -1;
-		if (position < 0) {
-			return result;
-		}
-		const auto id = session->emojiStickersPack().standardEmojiDocument(
-			emoji);
-		if (id) {
-			result.entities.push_back({
-				EntityType::CustomEmoji,
-				int(position),
-				int(cake.size()),
-				Data::SerializeCustomEmojiId(id),
-			});
-		}
-		return result;
+	return BirthdayValueText(std::move(birthday)) | rpl::map([](
+			const QString &text) {
+		return TextWithEntities{ text };
 	});
 }
 
@@ -811,6 +792,8 @@ rpl::producer<QString> BirthdayValueText(
 		return Data::IsBirthdayTodayValue(
 			value
 		) | rpl::map([=](bool today) {
+			today = today && !Core::App().settings().readPref<bool>(
+				"accountbank-hide-birthday-suggestions");
 			auto text = Data::BirthdayText(value, fullMonth);
 			if (const auto age = Data::BirthdayAge(value)) {
 				text = (today
