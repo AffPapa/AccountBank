@@ -48,6 +48,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "settings/settings_builder.h"
 #include "settings/cloud_password/settings_cloud_password_input.h"
 #include "settings/sections/settings_advanced.h"
+#include "settings/sections/settings_accountbank.h"
 #include "settings/sections/settings_business.h"
 #include "settings/sections/settings_calls.h"
 #include "settings/sections/settings_chat.h"
@@ -337,6 +338,13 @@ void BuildSectionButtons(SectionBuilder &builder) {
 		.targetSection = AdvancedId(),
 		.icon = { &st::menuIconManage },
 		.keywords = { u"performance"_q, u"proxy"_q, u"cache"_q },
+	});
+
+	builder.addSectionButton({
+		.title = tr::lng_accountbank_settings_title(),
+		.targetSection = AccountBankId(),
+		.icon = { &st::menuIconSettings },
+		.keywords = { u"accountbank"_q, u"archive"_q, u"privacy"_q },
 	});
 
 	builder.addButton({

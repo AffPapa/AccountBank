@@ -1889,6 +1889,8 @@ PRIVATE
     settings/sections/settings_active_sessions.h
     settings/sections/settings_advanced.cpp
     settings/sections/settings_advanced.h
+    settings/sections/settings_accountbank.cpp
+    settings/sections/settings_accountbank.h
     settings/sections/settings_chat.cpp
     settings/sections/settings_chat.h
     settings/sections/settings_blocked_peers.cpp

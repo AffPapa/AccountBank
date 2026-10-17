@@ -102,11 +102,14 @@ namespace {
 	const auto raw = Core::App().settings().messageFilter();
 	if (raw != cachedFor) {
 		cachedFor = raw;
-		auto expression = QRegularExpression(
-			QString::fromUtf8(raw));
-		cached = expression.isValid()
-			? std::optional<QRegularExpression>(std::move(expression))
-			: std::nullopt;
+		if (raw.isEmpty()) {
+			cached = std::nullopt;
+		} else {
+			auto expression = QRegularExpression(QString::fromUtf8(raw));
+			cached = expression.isValid()
+				? std::optional<QRegularExpression>(std::move(expression))
+				: std::nullopt;
+		}
 	}
 	return cached;
 }

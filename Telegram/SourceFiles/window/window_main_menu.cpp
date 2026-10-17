@@ -78,6 +78,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "wallet/wallet_panel.h"
 #include "window/themes/window_theme.h"
 #include "window/window_controller.h"
+#include "window/window_accountbank_actions.h"
 #include "window/window_main_menu_helpers.h"
 #include "window/window_peer_menu.h"
 #include "window/window_session_controller.h"
@@ -209,7 +210,7 @@ QString AccountBankElapsed(qint64 sent, qint64 observed) {
 	return tr::lng_minutes_tiny(tr::now, lt_count, int(minutes));
 }
 
-void ShowAccountBankArchive(
+void ShowAccountBankArchiveBox(
 		not_null<Window::SessionController*> controller,
 		const QString &kind,
 		const QString &peerFilter = QString(),
@@ -237,7 +238,7 @@ void ShowAccountBankArchive(
 				st::aboutVersionLink));
 			all->setClickedCallback([=] {
 				box->closeBox();
-				ShowAccountBankArchive(controller, kind);
+				ShowAccountBankArchiveBox(controller, kind);
 			});
 		}
 		for (const auto &category : {
@@ -255,7 +256,7 @@ void ShowAccountBankArchive(
 				st::aboutVersionLink));
 			link->setClickedCallback([=] {
 				box->closeBox();
-				ShowAccountBankArchive(controller, category, peerFilter, peerTitle);
+				ShowAccountBankArchiveBox(controller, category, peerFilter, peerTitle);
 			});
 		}
 		box->addSkip(st::boxLittleSkip);
@@ -263,24 +264,6 @@ void ShowAccountBankArchive(
 			box,
 			tr::lng_accountbank_archive_about(tr::now),
 			st::aboutLabel));
-		if (kind == u"delete"_q) {
-			const auto keep = Core::App().settings().keepDeletedMessages();
-			const auto toggle = box->addRow(object_ptr<Ui::LinkButton>(
-				box,
-				keep
-					? tr::lng_accountbank_keep_deleted_on(tr::now)
-					: tr::lng_accountbank_keep_deleted_off(tr::now),
-				st::aboutVersionLink));
-			toggle->setClickedCallback([=] {
-				Core::App().settings().setKeepDeletedMessages(!keep);
-				box->closeBox();
-				ShowAccountBankArchive(controller, kind, peerFilter, peerTitle);
-			});
-			box->addRow(object_ptr<Ui::FlatLabel>(
-				box,
-				tr::lng_accountbank_keep_deleted_help(tr::now),
-				st::aboutLabel));
-		}
 		const auto status = box->addRow(object_ptr<Ui::FlatLabel>(
 			box,
 			tr::lng_accountbank_archive_loading(tr::now),
@@ -363,7 +346,7 @@ void ShowAccountBankArchive(
 							dialog->setClickedCallback(
 								[weak, controller, kind, peerId, peer] {
 									if (weak) weak->closeBox();
-									ShowAccountBankArchive(controller, kind, peerId, peer);
+									ShowAccountBankArchiveBox(controller, kind, peerId, peer);
 								});
 						}
 						continue;
@@ -443,7 +426,7 @@ void ShowAccountBankArchive(
 						dialog->setClickedCallback(
 							[weak, controller, kind, peerId, peer] {
 								if (weak) weak->closeBox();
-								ShowAccountBankArchive(controller, kind, peerId, peer);
+								ShowAccountBankArchiveBox(controller, kind, peerId, peer);
 							});
 					}
 				}
@@ -454,6 +437,71 @@ void ShowAccountBankArchive(
 } // namespace
 
 namespace Window {
+
+void ShowAccountBankArchive(
+		not_null<SessionController*> controller,
+		const QString &kind) {
+	ShowAccountBankArchiveBox(controller, kind);
+}
+
+void ShowAccountBankAdminChats(not_null<SessionController*> controller) {
+	controller->show(Box<PeerListBox>(
+		std::make_unique<AccountBankAdminChats>(controller),
+		[](not_null<PeerListBox*>) {}));
+}
+
+void ShowAccountBankMessageFilterBox(
+		not_null<SessionController*> controller) {
+	controller->show(Box(::ShowMessageFilterBox));
+}
+
+void ExportAccountBankArchive(not_null<SessionController*> controller) {
+	auto &session = controller->session();
+	auto &archive = session.data().archive();
+	if (archive.exportInProgress()) {
+		controller->showToast(
+			tr::lng_accountbank_archive_export_running(tr::now));
+		return;
+	}
+	const auto path = File::DefaultDownloadPath(&session)
+		+ u"AccountBank archive %1.json"_q.arg(session.userId().bare);
+	const auto weak = base::make_weak(controller);
+	archive.exportAsync(path, [weak, path](bool ok) {
+		if (!weak) {
+			return;
+		}
+		weak->showToast(ok
+			? tr::lng_accountbank_archive_exported(tr::now, lt_path, path)
+			: tr::lng_accountbank_archive_failed(tr::now));
+	});
+}
+
+void OpenAccountBankCloudForum(
+		not_null<SessionController*> controller,
+		bool legacy) {
+	auto &session = controller->session();
+	auto &archive = session.data().archive();
+	if (legacy) {
+		const auto id = archive.legacyCloudChannelId();
+		if (!id) {
+			return;
+		}
+		const auto channel = session.data().channel(ChannelId(id));
+		channel->setAccessHash(archive.legacyCloudAccessHash());
+		session.api().requestFullPeer(channel);
+		controller->showPeerHistory(channel);
+	} else if (!archive.ensureCloudForum()) {
+		controller->showToast(tr::lng_accountbank_cloud_failed(tr::now));
+	} else if (const auto id = archive.cloudForumId()) {
+		const auto channel = session.data().channel(ChannelId(id));
+		channel->setAccessHash(archive.cloudForumAccessHash());
+		session.api().requestFullPeer(channel);
+		controller->showPeerHistory(channel);
+	} else {
+		controller->showToast(tr::lng_accountbank_cloud_creating(tr::now));
+	}
+}
+
 class MainMenu::ToggleAccountsButton final : public Ui::AbstractButton {
 public:
 	ToggleAccountsButton(QWidget *parent, not_null<Main::Account*> current);
@@ -930,213 +978,11 @@ void MainMenu::setupMenu() {
 		controller->showPeerHistory(controller->session().user());
 	});
 	addAction(
-		tr::lng_accountbank_admin_chats(),
-		{ &st::menuIconChatBubble }
-	)->setClickedCallback([=] {
-		controller->show(Box<PeerListBox>(
-			std::make_unique<AccountBankAdminChats>(controller),
-			[](not_null<PeerListBox*>) {}));
-	});
-	const auto seconds = addAction(
-		tr::lng_accountbank_time_seconds(),
-		{ &st::menuIconSettings }
-	)->toggleOn(rpl::single(Core::App().settings().readPref<bool>(
-		"accountbank-time-seconds")));
-	seconds->toggledChanges(
-	) | rpl::filter([=](bool value) {
-		return value != Core::App().settings().readPref<bool>(
-			"accountbank-time-seconds");
-	}) | rpl::on_next([=](bool value) {
-		Core::App().settings().writePref<bool>(
-			"accountbank-time-seconds", value);
-		Core::App().saveSettingsDelayed();
-		controller->showToast(tr::lng_accountbank_time_seconds_help(tr::now));
-	}, seconds->lifetime());
-	const auto serviceTime = addAction(
-		tr::lng_accountbank_service_time(),
-		{ &st::menuIconSettings }
-	)->toggleOn(rpl::single(Core::App().settings().readPref<bool>(
-		"accountbank-service-time")));
-	serviceTime->toggledChanges(
-	) | rpl::filter([=](bool value) {
-		return value != Core::App().settings().readPref<bool>(
-			"accountbank-service-time");
-	}) | rpl::on_next([=](bool value) {
-		Core::App().settings().writePref<bool>(
-			"accountbank-service-time", value);
-		Core::App().saveSettingsDelayed();
-		controller->showToast(tr::lng_accountbank_time_seconds_help(tr::now));
-	}, serviceTime->lifetime());
-	const auto hideBirthdays = addAction(
-		tr::lng_accountbank_hide_birthdays(),
-		{ &st::menuIconSettings }
-	)->toggleOn(rpl::single(Core::App().settings().readPref<bool>(
-		"accountbank-hide-birthday-suggestions")));
-	hideBirthdays->toggledChanges(
-	) | rpl::filter([=](bool value) {
-		return value != Core::App().settings().readPref<bool>(
-			"accountbank-hide-birthday-suggestions");
-	}) | rpl::on_next([=](bool value) {
-		Core::App().settings().writePref<bool>(
-			"accountbank-hide-birthday-suggestions", value);
-		Core::App().saveSettingsDelayed();
-		controller->showToast(tr::lng_accountbank_hide_birthdays_help(tr::now));
-	}, hideBirthdays->lifetime());
-	const auto hideStories = addAction(
-		tr::lng_accountbank_hide_stories_strip(),
-		{ &st::menuIconSettings }
-	)->toggleOn(rpl::single(Core::App().settings().readPref<bool>(
-		"accountbank-hide-stories-strip")));
-	hideStories->toggledChanges(
-	) | rpl::filter([=](bool value) {
-		return value != Core::App().settings().readPref<bool>(
-			"accountbank-hide-stories-strip");
-	}) | rpl::on_next([=](bool value) {
-		Core::App().settings().writePref<bool>(
-			"accountbank-hide-stories-strip", value);
-		Core::App().saveSettingsDelayed();
-		controller->showToast(
-			tr::lng_accountbank_hide_stories_strip_help(tr::now));
-	}, hideStories->lifetime());
-	const auto hideSimilar = addAction(
-		tr::lng_accountbank_hide_similar_peers(),
-		{ &st::menuIconSettings }
-	)->toggleOn(rpl::single(Core::App().settings().readPref<bool>(
-		"accountbank-hide-similar-peers")));
-	hideSimilar->toggledChanges(
-	) | rpl::filter([=](bool value) {
-		return value != Core::App().settings().readPref<bool>(
-			"accountbank-hide-similar-peers");
-	}) | rpl::on_next([=](bool value) {
-		Core::App().settings().writePref<bool>(
-			"accountbank-hide-similar-peers", value);
-		Core::App().saveSettingsDelayed();
-		controller->showToast(
-			tr::lng_accountbank_hide_similar_peers_help(tr::now));
-	}, hideSimilar->lifetime());
-	const auto ignoreMentions = addAction(
-		tr::lng_accountbank_ignore_group_mentions(),
-		{ &st::menuIconSettings }
-	)->toggleOn(rpl::single(Core::App().settings().readPref<bool>(
-		"accountbank-ignore-group-mentions")));
-	ignoreMentions->toggledChanges(
-	) | rpl::filter([=](bool value) {
-		return value != Core::App().settings().readPref<bool>(
-			"accountbank-ignore-group-mentions");
-	}) | rpl::on_next([=](bool value) {
-		Core::App().settings().writePref<bool>(
-			"accountbank-ignore-group-mentions", value);
-		Core::App().saveSettingsDelayed();
-		controller->showToast(
-			tr::lng_accountbank_ignore_group_mentions_help(tr::now));
-	}, ignoreMentions->lifetime());
-	const auto compactList = addAction(
-		tr::lng_accountbank_compact_list(),
-		{ &st::menuIconSettings }
-	)->toggleOn(rpl::single(Core::App().settings().compactChatList()));
-	compactList->toggledChanges(
-	) | rpl::filter([=](bool value) {
-		return value != Core::App().settings().compactChatList();
-	}) | rpl::on_next([=](bool value) {
-		Core::App().settings().setCompactChatList(value);
-		Core::App().saveSettingsDelayed();
-		controller->showToast(tr::lng_accountbank_compact_list_help(tr::now));
-	}, compactList->lifetime());
-	const auto unreadFirst = addAction(
-		tr::lng_accountbank_unread_first(),
-		{ &st::menuIconSettings }
-	)->toggleOn(rpl::single(Core::App().settings().unreadFirst()));
-	unreadFirst->toggledChanges(
-	) | rpl::filter([=](bool value) {
-		return value != Core::App().settings().unreadFirst();
-	}) | rpl::on_next([=](bool value) {
-		Core::App().settings().setUnreadFirst(value);
-		Core::App().saveSettingsDelayed();
-		controller->session().data().applyUnreadFirstPref();
-	}, unreadFirst->lifetime());
-	addAction(
 		tr::lng_menu_settings(),
 		{ &st::menuIconSettings }
 	)->setClickedCallback([=] {
 		controller->showSettings();
 	});
-	addAction(
-		tr::lng_accountbank_deleted_archive(),
-		{ &st::menuIconSavedMessages }
-	)->setClickedCallback([=] {
-		ShowAccountBankArchive(controller, u"delete"_q);
-	});
-	addAction(
-		tr::lng_accountbank_export_archive(),
-		{ &st::menuIconExport }
-	)->setClickedCallback([=] {
-		auto &session = controller->session();
-		auto &archive = session.data().archive();
-		if (archive.exportInProgress()) {
-			controller->showToast(
-				tr::lng_accountbank_archive_export_running(tr::now));
-			return;
-		}
-		const auto path = File::DefaultDownloadPath(&session)
-			+ u"AccountBank archive %1.json"_q
-				.arg(session.userId().bare);
-		const auto weak = base::make_weak(controller);
-		archive.exportAsync(path, [weak, path](bool ok) {
-			if (!weak) {
-				return;
-			}
-			weak->showToast(ok
-				? tr::lng_accountbank_archive_exported(
-					tr::now,
-					lt_path,
-					path)
-				: tr::lng_accountbank_archive_failed(tr::now));
-		});
-	});
-	addAction(
-		tr::lng_accountbank_cloud_archive(),
-		{ &st::menuIconSavedMessages }
-	)->setClickedCallback([=] {
-		auto &session = controller->session();
-		auto &archive = session.data().archive();
-		if (!archive.ensureCloudForum()) {
-			controller->showToast(tr::lng_accountbank_cloud_failed(tr::now));
-		} else if (const auto id = archive.cloudForumId()) {
-			const auto channel = session.data().channel(ChannelId(id));
-			channel->setAccessHash(archive.cloudForumAccessHash());
-			session.api().requestFullPeer(channel);
-			controller->showPeerHistory(channel);
-		} else {
-			controller->showToast(tr::lng_accountbank_cloud_creating(tr::now));
-		}
-	});
-	addAction(
-		tr::lng_accountbank_text_replacements_title(),
-		{ &st::menuIconSettings }
-	)->setClickedCallback([=] {
-		controller->show(Box(ChatHelpers::ShowTextReplacementsBox));
-	});
-	addAction(
-		tr::lng_accountbank_message_filter_menu(),
-		{ &st::menuIconSettings }
-	)->setClickedCallback([=] {
-		controller->show(Box(ShowMessageFilterBox));
-	});
-	if (controller->session().data().archive().legacyCloudChannelId()) {
-		addAction(
-			tr::lng_accountbank_cloud_legacy(),
-			{ &st::menuIconSavedMessages }
-		)->setClickedCallback([=] {
-			auto &session = controller->session();
-			auto &archive = session.data().archive();
-			const auto id = archive.legacyCloudChannelId();
-			if (!id) return;
-			const auto channel = session.data().channel(ChannelId(id));
-			channel->setAccessHash(archive.legacyCloudAccessHash());
-			session.api().requestFullPeer(channel);
-			controller->showPeerHistory(channel);
-		});
-	}
 
 	_nightThemeToggle = addAction(
 		tr::lng_menu_night_mode(),
