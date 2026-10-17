@@ -240,6 +240,16 @@ MessageArchive::MessageArchive(not_null<Session*> owner)
 	) | rpl::on_next([=](const Data::PeerUpdate &update) {
 		logPresence(update.peer);
 	}, _lifetime);
+
+	_owner->session().changes().peerUpdates(
+		Data::PeerUpdate::Flag::Name
+		| Data::PeerUpdate::Flag::Username
+		| Data::PeerUpdate::Flag::Photo
+		| Data::PeerUpdate::Flag::PhoneNumber
+		| Data::PeerUpdate::Flag::About
+	) | rpl::on_next([=](const Data::PeerUpdate &update) {
+		logProfileChange(update.peer);
+	}, _lifetime);
 }
 
 MessageArchive::~MessageArchive() {
@@ -513,6 +523,24 @@ void MessageArchive::logSavedMedia(
 	if (!flush()) {
 		LOG(("Archive: saved media reference could not be stored."));
 	}
+}
+
+void MessageArchive::logProfileChange(not_null<PeerData*> peer) {
+	const auto user = peer->asUser();
+	if (!user) {
+		return;
+	}
+	auto object = QJsonObject();
+	object.insert(u"peer"_q, QString::number(peer->id.value));
+	object.insert(u"name"_q, peer->name());
+	object.insert(u"username"_q, user->username());
+	object.insert(u"phone"_q, user->phone());
+	object.insert(u"about"_q, user->about());
+	enqueue(
+		u"profile"_q,
+		object.value(u"peer"_q).toString(),
+		QString(),
+		object);
 }
 
 void MessageArchive::enqueue(

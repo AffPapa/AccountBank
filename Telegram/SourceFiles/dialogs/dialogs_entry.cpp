@@ -29,6 +29,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/history_item.h"
 #include "styles/style_dialogs.h" // st::dialogsTextWidthMin
 
+#include <QtCore/QDataStream>
+
 namespace Dialogs {
 namespace {
 
@@ -52,6 +54,75 @@ uint64 PinnedDialogPos(int pinnedIndex) {
 uint64 UnreadOnTopDialogPos(uint64 sortKeyByDate) {
 	return sortKeyByDate | 0x8000000000000000ULL;
 }
+
+uint64 LocalPinnedDialogPos(int localIndex) {
+	return 0xFFFFFFFE000000FFULL - localIndex;
+}
+
+class LocalPinnedStorage {
+public:
+	[[nodiscard]] int position(quint64 userId, quint64 peerId) {
+		read();
+		const auto i = ranges::find(
+			_list,
+			std::make_pair(userId, peerId));
+		return (i == end(_list)) ? 0 : int(i - begin(_list)) + 1;
+	}
+	void setPinned(quint64 userId, quint64 peerId, bool pinned) {
+		read();
+		const auto i = ranges::find(
+			_list,
+			std::make_pair(userId, peerId));
+		const auto found = (i != end(_list));
+		if (pinned == found) {
+			return;
+		}
+		if (pinned) {
+			_list.emplace_back(userId, peerId);
+		} else {
+			_list.erase(i);
+		}
+		write();
+	}
+
+private:
+	void read() {
+		if (_loaded) {
+			return;
+		}
+		_loaded = true;
+		const auto &data = Core::App().settings().localPinnedKeys();
+		if (data.isEmpty()) {
+			return;
+		}
+		auto stream = QDataStream(data);
+		auto count = quint32(0);
+		stream >> count;
+		_list.reserve(count);
+		for (auto i = quint32(0); i != count; ++i) {
+			auto userId = quint64(0);
+			auto peerId = quint64(0);
+			stream >> userId >> peerId;
+			_list.emplace_back(userId, peerId);
+		}
+	}
+	void write() {
+		auto data = QByteArray();
+		auto stream = QDataStream(&data, QIODevice::WriteOnly);
+		stream << quint32(_list.size());
+		for (const auto &[userId, peerId] : _list) {
+			stream << userId << peerId;
+		}
+		Core::App().settings().setLocalPinnedKeys(data);
+		Core::App().saveSettingsDelayed();
+	}
+
+	std::vector<std::pair<quint64, quint64>> _list;
+	bool _loaded = false;
+
+};
+
+LocalPinnedStorage LocalPinned;
 
 base::options::toggle OptionUnreadOnTop({
 	.id = kOptionDialogsUnreadOnTop,
@@ -247,7 +318,41 @@ int Entry::lookupPinnedIndex(FilterId filterId) const {
 
 uint64 Entry::computeSortPosition(FilterId filterId) const {
 	const auto index = lookupPinnedIndex(filterId);
-	return index ? PinnedDialogPos(index) : _sortKeyByDate;
+	if (index) {
+		return PinnedDialogPos(index);
+	} else if (const auto history = (!filterId)
+		? asHistory()
+		: nullptr) {
+		const auto localIndex = LocalPinned.position(
+			session().userId().bare,
+			history->peer->id.value);
+		if (localIndex) {
+			return LocalPinnedDialogPos(localIndex);
+		}
+	}
+	return _sortKeyByDate;
+}
+
+bool Entry::isLocalPinnedDialog() const {
+	const auto history = asHistory();
+	if (!history) {
+		return false;
+	}
+	return LocalPinned.position(
+		session().userId().bare,
+		history->peer->id.value) != 0;
+}
+
+void Entry::setLocalPinnedDialog(bool pinned) {
+	const auto history = asHistory();
+	if (!history) {
+		return;
+	}
+	LocalPinned.setPinned(
+		session().userId().bare,
+		history->peer->id.value,
+		pinned);
+	updateChatListSortPosition();
 }
 
 bool Entry::hasUnreadUnmutedForSort() const {

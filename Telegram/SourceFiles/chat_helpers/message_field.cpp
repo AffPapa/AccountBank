@@ -1658,6 +1658,30 @@ Ui::InputField::MimeDataHook WrappedMessageFieldMimeHook(
 	};
 }
 
+QString RewritePastedLinks(QString text) {
+	static const auto RegExp = QRegularExpression(
+		u"(?<![\\w@.-])(?:www\\.)?(?:twitter|x)\\.com(?=[/?#])"_q);
+	return text.replace(RegExp, u"fixupx.com"_q);
+}
+
+bool InsertWithRewrittenLinks(
+		not_null<Ui::InputField*> field,
+		not_null<const QMimeData*> data) {
+	if (!data->hasText()
+		|| data->hasHtml()
+		|| data->hasImage()
+		|| data->hasFormat(TextUtilities::TagsTextMimeType())) {
+		return false;
+	}
+	const auto original = data->text();
+	if (!original.contains(u"x.com"_q)
+		&& !original.contains(u"twitter.com"_q)) {
+		return false;
+	}
+	field->textCursor().insertText(RewritePastedLinks(original));
+	return true;
+}
+
 bool PasteAsPlainTextRequested() {
 	const auto modifiers = QGuiApplication::keyboardModifiers();
 	return (modifiers & Qt::ControlModifier)

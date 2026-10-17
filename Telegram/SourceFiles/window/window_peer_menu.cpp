@@ -407,6 +407,9 @@ bool PinnedLimitReached(
 		owner->setChatPinned(wasted, FilterId(), false);
 		owner->setChatPinned(history, FilterId(), true);
 		history->session().api().savePinnedOrder(folder);
+	} else if (!entry->isLocalPinnedDialog()) {
+		entry->setLocalPinnedDialog(true);
+		controller->showToast(tr::lng_accountbank_local_pinned(tr::now));
 	} else if (folder) {
 		controller->show(Box(FolderPinsLimitBox, &history->session()));
 	} else {
@@ -436,6 +439,11 @@ void TogglePinnedThread(
 		return;
 	}
 	const auto owner = &entry->owner();
+	if (!entry->isPinnedDialog(FilterId())
+		&& entry->isLocalPinnedDialog()) {
+		entry->setLocalPinnedDialog(false);
+		return;
+	}
 	const auto isPinned = !entry->isPinnedDialog(FilterId());
 	if (isPinned && PinnedLimitReached(controller, entry)) {
 		return;
@@ -563,8 +571,9 @@ void Filler::addTogglePin() {
 	} else if (InsideCollapsedCommunity(_request.key.history())) {
 		return;
 	}
+	const auto locallyPinned = !filterId && entry->isLocalPinnedDialog();
 	const auto pinText = [=] {
-		return entry->isPinnedDialog(filterId)
+		return (entry->isPinnedDialog(filterId) || locallyPinned)
 			? tr::lng_context_unpin_from_top(tr::now)
 			: tr::lng_context_pin_to_top(tr::now);
 	};
@@ -577,7 +586,7 @@ void Filler::addTogglePin() {
 	_addAction(
 		pinText(),
 		pinToggle,
-		(entry->isPinnedDialog(filterId)
+		((entry->isPinnedDialog(filterId) || locallyPinned)
 			? &st::menuIconUnpin
 			: &st::menuIconPin));
 }

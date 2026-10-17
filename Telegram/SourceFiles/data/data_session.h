@@ -953,6 +953,7 @@ public:
 	void refreshChatListEntry(Dialogs::Key key);
 	void removeChatListEntry(Dialogs::Key key);
 	void refreshChatListUnreadOnTop();
+	void applyUnreadFirstPref();
 	[[nodiscard]] bool dialogsUnreadOnTop() const {
 		return _dialogsUnreadOnTop;
 	}

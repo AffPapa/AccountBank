@@ -1808,6 +1808,16 @@ void Message::draw(Painter &p, const PaintContext &context) const {
 	if (selectionTranslation) {
 		p.translate(selectionTranslation, 0);
 	}
+	const auto deletedDimmed = item->isServerDeleted();
+	const auto savedOpacity = deletedDimmed ? p.opacity() : 1.;
+	if (deletedDimmed) {
+		p.setOpacity(0.55);
+	}
+	const auto restoreOpacity = gsl::finally([&] {
+		if (deletedDimmed) {
+			p.setOpacity(savedOpacity);
+		}
+	});
 
 	if (item->hasUnrequestedFactcheck()
 		&& (Message::context() != Context::MediaEditor)) {

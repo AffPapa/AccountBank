@@ -57,6 +57,7 @@ public:
 		Fn<void(RecentResult)> done);
 	void logRead(not_null<History*> history, MsgId upTo);
 	void logPresence(not_null<PeerData*> peer);
+	void logProfileChange(not_null<PeerData*> peer);
 	void logSavedMedia(
 		const QString &kind,
 		const QString &path,

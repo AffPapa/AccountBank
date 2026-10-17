@@ -74,6 +74,9 @@ struct ShareBoxStyleOverrides {
 void FastShareMessageToSelf(
 	std::shared_ptr<Main::SessionShow> show,
 	not_null<HistoryItem*> item);
+void FastShareMessagesToSelf(
+	std::shared_ptr<Main::SessionShow> show,
+	MessageIdsList ids);
 void FastShareMessage(
 	std::shared_ptr<Main::SessionShow> show,
 	not_null<HistoryItem*> item,

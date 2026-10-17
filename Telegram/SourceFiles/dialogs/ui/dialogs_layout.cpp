@@ -383,6 +383,13 @@ void PaintFolderEntryText(
 	return (info && !info->lastHistories().empty()) ? info : nullptr;
 }
 
+[[nodiscard]] bool PinnedIconShown(
+		not_null<const Entry*> entry,
+		FilterId filter) {
+	return entry->isPinnedDialog(filter)
+		|| (!filter && entry->isLocalPinnedDialog());
+}
+
 void PaintCommunityEntryText(
 		Painter &p,
 		not_null<Data::CommunityInfo*> info,
@@ -659,7 +666,7 @@ void PaintRow(
 		// Unlike the Archive folder (fixed on top), a collapsed community is
 		// a movable pinned entry, so it shows the pinned icon when pinned and
 		// without an unread counter, exactly like an ordinary chat.
-		const auto displayPinnedIcon = entry->isPinnedDialog(context.filter)
+		const auto displayPinnedIcon = PinnedIconShown(entry, context.filter)
 			&& (context.filter || !entry->fixedOnTopIndex());
 		const auto availableWidth = PaintWideCounter(
 			p,
@@ -707,7 +714,7 @@ void PaintRow(
 		auto availableWidth = namewidth;
 		if (const auto used = PaintRightButton(p, context)) {
 			availableWidth -= used;
-		} else if (entry->isPinnedDialog(context.filter)
+		} else if (PinnedIconShown(entry, context.filter)
 			&& (context.filter || !entry->fixedOnTopIndex())) {
 			auto &icon = ThreeStateIcon(
 				st::dialogsPinnedIcon,
@@ -805,7 +812,7 @@ void PaintRow(
 		auto availableWidth = namewidth;
 		if (const auto used = PaintRightButton(p, context)) {
 			availableWidth -= used;
-		} else if (entry->isPinnedDialog(context.filter)
+		} else if (PinnedIconShown(entry, context.filter)
 			&& (context.filter || !entry->fixedOnTopIndex())) {
 			auto &icon = ThreeStateIcon(
 				st::dialogsPinnedIcon,
@@ -845,7 +852,7 @@ void PaintRow(
 		}
 
 		paintItemCallback(nameleft, namewidth);
-	} else if (entry->isPinnedDialog(context.filter)
+	} else if (PinnedIconShown(entry, context.filter)
 		&& (context.filter || !entry->fixedOnTopIndex())) {
 		auto &icon = ThreeStateIcon(
 			st::dialogsPinnedIcon,
@@ -1199,7 +1206,7 @@ void RowPainter::Paint(
 		return std::max(itemDate, draftDate);
 	}();
 	const auto displayPinnedIcon = badgesState.empty()
-		&& entry->isPinnedDialog(context.filter)
+		&& PinnedIconShown(entry, context.filter)
 		&& (context.filter || !entry->fixedOnTopIndex());
 
 	const auto from = history

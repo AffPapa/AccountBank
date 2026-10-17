@@ -3680,6 +3680,7 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 				}
 			}
 		}
+		HistoryView::AddBotButtonCopyAction(_menu, link);
 		if (!actionText.isEmpty()) {
 			_menu->addAction(
 				actionText,
@@ -3727,6 +3728,11 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 					_widget->forwardSelected();
 				}, &st::menuIconForward);
 			}
+			HistoryView::AddForwardSavedAction(
+				_menu,
+				_controller->uiShow(),
+				getSelectedItems(),
+				[=] { _widget->clearSelected(); });
 			if (selectedState.count > 0 && selectedState.count == selectedState.canDeleteCount) {
 				_menu->addAction(tr::lng_context_delete_selected(tr::now), [=] {
 					_widget->confirmDeleteSelected();
@@ -3757,7 +3763,22 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 					_menu->addAction(tr::lng_context_forward_msg(tr::now), [=] {
 						forwardAsGroup(itemId);
 					}, &st::menuIconForward);
+					HistoryView::AddForwardSavedAction(
+						_menu,
+						_controller->uiShow(),
+						asGroup
+							? session->data().itemOrItsGroup(item)
+							: MessageIdsList{ itemId },
+						[] {});
 				}
+				HistoryView::AddRepeatMessageAction(
+					_menu,
+					item,
+					asGroup,
+					hasCopyRestriction(item),
+					[=](const QString &text) {
+						_widget->insertTextAtCursor(text);
+					});
 				if (HistoryView::CanAddOfferToMessage(item)) {
 					_menu->addAction(tr::lng_context_add_offer(tr::now), [=] {
 						Api::AddOfferToMessage(_controller->uiShow(), itemId);
@@ -3907,11 +3928,17 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 }
 
 bool HistoryInner::hasCopyRestriction(HistoryItem *item) const {
+	if (Core::App().settings().allowCopyRestricted()) {
+		return false;
+	}
 	return !_peer->allowsForwarding() || (item && item->forbidsForward());
 }
 
 bool HistoryInner::hasCopyMediaRestriction(
 		not_null<HistoryItem*> item) const {
+	if (Core::App().settings().allowCopyRestricted()) {
+		return false;
+	}
 	return hasCopyRestriction(item) || item->forbidsSaving();
 }
 

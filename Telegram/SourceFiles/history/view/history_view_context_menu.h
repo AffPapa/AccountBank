@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #pragma once
 
 #include "base/unique_qptr.h"
+#include "data/data_types.h"
 #include "history/view/history_view_element.h"
 
 namespace Data {
@@ -133,6 +134,20 @@ void AddCopyFilename(
 	not_null<Ui::PopupMenu*> menu,
 	not_null<DocumentData*> document,
 	Fn<bool()> showCopyRestrictionForSelected);
+void AddBotButtonCopyAction(
+	not_null<Ui::PopupMenu*> menu,
+	const ClickHandlerPtr &link);
+void AddRepeatMessageAction(
+	not_null<Ui::PopupMenu*> menu,
+	not_null<HistoryItem*> item,
+	bool asGroup,
+	bool copyRestricted,
+	Fn<void(const QString &)> insertText);
+void AddForwardSavedAction(
+	not_null<Ui::PopupMenu*> menu,
+	std::shared_ptr<Main::SessionShow> show,
+	const MessageIdsList &ids,
+	Fn<void()> clearSelection);
 
 enum class EmojiPacksSource {
 	Message,

@@ -73,6 +73,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "boxes/delete_messages_box.h"
 #include "boxes/moderate_messages_box.h"
 #include "boxes/report_messages_box.h"
+#include "boxes/share_box.h"
 #include "boxes/sticker_set_box.h"
 #include "boxes/stickers_box.h"
 #include "boxes/translate_box.h"
@@ -1416,6 +1417,30 @@ void AddMessageActions(
 		}, &st::menuIconCopy);
 	}
 	AddForwardAction(menu, request, list);
+	if (request.selectedItems.empty() && request.item) {
+		AddRepeatMessageAction(
+			menu,
+			request.item,
+			(request.pointState != PointState::GroupPart),
+			list->hasCopyRestriction(request.item),
+			[=](const QString &text) { list->insertTextAtCursor(text); });
+	}
+	if (!request.selectedItems.empty()) {
+		AddForwardSavedAction(
+			menu,
+			list->controller()->uiShow(),
+			ExtractIdsList(request.selectedItems),
+			[=] { list->cancelSelection(); });
+	} else if (request.item) {
+		const auto owner = &request.item->history()->owner();
+		AddForwardSavedAction(
+			menu,
+			list->controller()->uiShow(),
+			(request.pointState != PointState::GroupPart)
+				? owner->itemOrItsGroup(request.item)
+				: MessageIdsList{ request.item->fullId() },
+			[=] { list->cancelSelection(); });
+	}
 	AddOfferAction(menu, request, list);
 	AddSendNowAction(menu, request, list);
 	AddDeleteAction(menu, request, list);
@@ -1452,6 +1477,107 @@ void AddCopyLinkAction(
 		[=] { QGuiApplication::clipboard()->setText(text); },
 		&st::menuIconCopy);
 }
+
+} // namespace
+
+void AddBotButtonCopyAction(
+		not_null<Ui::PopupMenu*> menu,
+		const ClickHandlerPtr &link) {
+	const auto handler = dynamic_cast<ReplyMarkupClickHandler*>(link.get());
+	if (!handler) {
+		return;
+	}
+	const auto button = handler->getButton();
+	if (!button) {
+		return;
+	}
+	using Type = HistoryMessageMarkupButton::Type;
+	const auto url = (button->type == Type::Url || button->type == Type::Auth)
+		? QString::fromUtf8(button->data)
+		: QString();
+	const auto callbackData = (button->type == Type::Callback
+		|| button->type == Type::CallbackWithPassword)
+		? QString::fromUtf8(button->data)
+		: QString();
+	auto text = u"title: "_q + button->text;
+	if (!url.isEmpty()) {
+		text.append(u"\nurl: "_q).append(url);
+	}
+	if (!callbackData.isEmpty()) {
+		text.append(u"\ncallback_data: "_q).append(callbackData);
+	}
+	menu->addAction(
+		tr::lng_accountbank_copy_button_data(tr::now),
+		[=] { QGuiApplication::clipboard()->setText(text); },
+		&st::menuIconCopy);
+}
+
+void AddRepeatMessageAction(
+		not_null<Ui::PopupMenu*> menu,
+		not_null<HistoryItem*> item,
+		bool asGroup,
+		bool copyRestricted,
+		Fn<void(const QString &)> insertText) {
+	if (item->isService()
+		|| item->isLocal()
+		|| IsAnchoredEphemeral(item)) {
+		return;
+	}
+	const auto media = item->media();
+	if (media && !item->allowsForward()) {
+		return;
+	} else if (!media && copyRestricted) {
+		return;
+	}
+	const auto owner = &item->history()->owner();
+	const auto itemId = item->fullId();
+	menu->addAction(tr::lng_accountbank_repeat_message(tr::now), [=] {
+		const auto item = owner->message(itemId);
+		if (!item) {
+			return;
+		} else if (item->media()) {
+			auto ids = asGroup
+				? owner->itemOrItsGroup(item)
+				: MessageIdsList{ itemId };
+			auto action = Api::SendAction(item->history());
+			action.clearDraft = false;
+			action.replyTo.topicRootId = item->topicRootId();
+			item->history()->session().api().forwardMessages(
+				Data::ResolvedForwardDraft{
+					.items = owner->idsToItems(std::move(ids)),
+				},
+				std::move(action));
+		} else {
+			insertText(item->originalText().text);
+		}
+	}, &st::menuIconSend);
+}
+
+void AddForwardSavedAction(
+		not_null<Ui::PopupMenu*> menu,
+		std::shared_ptr<Main::SessionShow> show,
+		const MessageIdsList &ids,
+		Fn<void()> clearSelection) {
+	if (!show || ids.empty()) {
+		return;
+	}
+	const auto session = &show->session();
+	const auto items = session->data().idsToItems(ids);
+	if (items.empty()
+		|| items.front()->history()->peer->isSelf()
+		|| !ranges::all_of(items, &HistoryItem::allowsForward)) {
+		return;
+	}
+	menu->addAction(
+		tr::lng_accountbank_forward_saved(tr::now),
+		[=] {
+			FastShareMessagesToSelf(show, ids);
+			clearSelection();
+		},
+		&st::menuIconSavedMessages);
+}
+
+namespace {
 
 void EditTagBox(
 		not_null<Ui::GenericBox*> box,
@@ -1932,6 +2058,7 @@ void FillContextMenuItems(
 		}
 	}
 
+	AddBotButtonCopyAction(result, link);
 	AddCopyLinkAction(result, link);
 	AddMessageActions(result, request, list);
 

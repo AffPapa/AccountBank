@@ -991,6 +991,30 @@ void MainMenu::setupMenu() {
 		controller->showToast(
 			tr::lng_accountbank_ignore_group_mentions_help(tr::now));
 	}, ignoreMentions->lifetime());
+	const auto compactList = addAction(
+		tr::lng_accountbank_compact_list(),
+		{ &st::menuIconSettings }
+	)->toggleOn(rpl::single(Core::App().settings().compactChatList()));
+	compactList->toggledChanges(
+	) | rpl::filter([=](bool value) {
+		return value != Core::App().settings().compactChatList();
+	}) | rpl::on_next([=](bool value) {
+		Core::App().settings().setCompactChatList(value);
+		Core::App().saveSettingsDelayed();
+		controller->showToast(tr::lng_accountbank_compact_list_help(tr::now));
+	}, compactList->lifetime());
+	const auto unreadFirst = addAction(
+		tr::lng_accountbank_unread_first(),
+		{ &st::menuIconSettings }
+	)->toggleOn(rpl::single(Core::App().settings().unreadFirst()));
+	unreadFirst->toggledChanges(
+	) | rpl::filter([=](bool value) {
+		return value != Core::App().settings().unreadFirst();
+	}) | rpl::on_next([=](bool value) {
+		Core::App().settings().setUnreadFirst(value);
+		Core::App().saveSettingsDelayed();
+		controller->session().data().applyUnreadFirstPref();
+	}, unreadFirst->lifetime());
 	addAction(
 		tr::lng_menu_settings(),
 		{ &st::menuIconSettings }

@@ -32,6 +32,8 @@ namespace {
 		return st::communityInfoForumDialogRow;
 	} else if (&base == &st::taggedDialogRow) {
 		return st::communityInfoTaggedDialogRow;
+	} else if (&base == &st::compactDialogRow) {
+		return st::compactDialogRow;
 	}
 	return st::communityInfoDialogRow;
 }

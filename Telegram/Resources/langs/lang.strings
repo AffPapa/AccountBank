@@ -9242,5 +9242,13 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_accountbank_hide_stories_strip_help" = "Лента сторис появится или исчезнет после перезапуска клиента.";
 "lng_accountbank_hide_similar_peers" = "Скрыть похожие каналы и ботов";
 "lng_accountbank_hide_similar_peers_help" = "Рекомендации исчезнут из профилей после повторного открытия клиента.";
+"lng_accountbank_compact_list" = "Компактный список чатов";
+"lng_accountbank_compact_list_help" = "Строки чатов станут ниже после перезапуска клиента.";
+"lng_accountbank_unread_first" = "Непрочитанные сверху";
+"lng_accountbank_unread_first_help" = "Чаты с непрочитанными сообщениями поднимаются над остальными и возвращаются на место после прочтения.";
+"lng_accountbank_local_pinned" = "Лимит закрепов достигнут: чат закреплён локально, только на этом устройстве.";
+"lng_accountbank_copy_button_data" = "Копировать данные кнопки";
+"lng_accountbank_repeat_message" = "Повторить сообщение";
+"lng_accountbank_forward_saved" = "Переслать в «Избранное»";
 
 // Keys finished

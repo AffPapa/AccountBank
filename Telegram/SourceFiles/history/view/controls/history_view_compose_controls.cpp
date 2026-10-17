@@ -2254,6 +2254,9 @@ void ComposeControls::setMimeDataHook(MimeDataHook hook) {
 					return true;
 				} else if (originalHook && originalHook(data, action)) {
 					return true;
+				} else if (action == Ui::InputField::MimeAction::Insert
+					&& InsertWithRewrittenLinks(_field, data)) {
+					return true;
 				} else if (action == Ui::InputField::MimeAction::Insert) {
 					offerRichPaste(data);
 				}

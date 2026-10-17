@@ -126,6 +126,8 @@ public:
 	[[nodiscard]] bool isPinnedDialog(FilterId filterId) const {
 		return lookupPinnedIndex(filterId) != 0;
 	}
+	[[nodiscard]] bool isLocalPinnedDialog() const;
+	void setLocalPinnedDialog(bool pinned);
 	void cachePinnedIndex(FilterId filterId, int index);
 	[[nodiscard]] uint64 sortKeyInChatList(FilterId filterId) const {
 		return filterId

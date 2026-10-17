@@ -42,7 +42,11 @@ inline constexpr auto kScreenReaderModeDisabledKey
 inline constexpr auto kGhostModeKey = "ghost-mode"_cs;
 inline constexpr auto kHideSponsoredKey = "hide-sponsored"_cs;
 inline constexpr auto kKeepDeletedKey = "keep-deleted"_cs;
+inline constexpr auto kAllowCopyRestrictedKey = "allow-copy-restricted"_cs;
 inline constexpr auto kStreamerModeKey = "streamer-mode"_cs;
+inline constexpr auto kCompactChatListKey = "compact-chat-list"_cs;
+inline constexpr auto kUnreadFirstKey = "unread-first"_cs;
+inline constexpr auto kLocalPinnedKey = "local-pinned"_cs;
 
 struct WindowPosition {
 	int32 moncrc = 0;
@@ -209,11 +213,35 @@ public:
 	void setKeepDeletedMessages(bool value) {
 		writePref<bool>(kKeepDeletedKey, value);
 	}
+	[[nodiscard]] bool allowCopyRestricted() {
+		return readPref<bool>(kAllowCopyRestrictedKey, true);
+	}
+	void setAllowCopyRestricted(bool value) {
+		writePref<bool>(kAllowCopyRestrictedKey, value);
+	}
 	[[nodiscard]] bool streamerMode() {
 		return readPref<bool>(kStreamerModeKey, false);
 	}
 	void setStreamerMode(bool value) {
 		writePref<bool>(kStreamerModeKey, value);
+	}
+	[[nodiscard]] bool compactChatList() {
+		return readPref<bool>(kCompactChatListKey, false);
+	}
+	void setCompactChatList(bool value) {
+		writePref<bool>(kCompactChatListKey, value);
+	}
+	[[nodiscard]] bool unreadFirst() {
+		return readPref<bool>(kUnreadFirstKey, false);
+	}
+	void setUnreadFirst(bool value) {
+		writePref<bool>(kUnreadFirstKey, value);
+	}
+	[[nodiscard]] QByteArray localPinnedKeys() {
+		return readPref<QByteArray>(kLocalPinnedKey);
+	}
+	void setLocalPinnedKeys(const QByteArray &value) {
+		writePref<QByteArray>(kLocalPinnedKey, value);
 	}
 	[[nodiscard]] QString downloadPath() const {
 		return _downloadPath.current();

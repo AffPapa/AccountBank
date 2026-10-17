@@ -375,12 +375,11 @@ Session::Session(not_null<Main::Session*> session)
 		notifyUnreadBadgeChanged();
 	}, _lifetime);
 
-	const auto &unreadOnTop = base::options::lookup<bool>(
-		Dialogs::kOptionDialogsUnreadOnTop);
-	_dialogsUnreadOnTop = unreadOnTop.value();
-	unreadOnTop.changes() | rpl::on_next([=, &unreadOnTop] {
-		_dialogsUnreadOnTop = unreadOnTop.value();
-		refreshChatListUnreadOnTop();
+	applyUnreadFirstPref();
+	base::options::lookup<bool>(
+		Dialogs::kOptionDialogsUnreadOnTop
+	).changes() | rpl::on_next([=] {
+		applyUnreadFirstPref();
 	}, _lifetime);
 
 	_chatsFilters->changed(
@@ -5778,6 +5777,16 @@ void Session::refreshChatListUnreadOnTop() {
 	}
 	for (const auto &entry : entries) {
 		entry->updateChatListSortPosition();
+	}
+}
+
+void Session::applyUnreadFirstPref() {
+	const auto was = _dialogsUnreadOnTop;
+	_dialogsUnreadOnTop = base::options::lookup<bool>(
+		Dialogs::kOptionDialogsUnreadOnTop).value()
+		|| Core::App().settings().unreadFirst();
+	if (_dialogsUnreadOnTop != was) {
+		refreshChatListUnreadOnTop();
 	}
 }
 

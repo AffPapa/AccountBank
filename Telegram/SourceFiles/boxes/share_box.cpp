@@ -2220,6 +2220,43 @@ void FastShareMessageToSelf(
 		});
 }
 
+void FastShareMessagesToSelf(
+		std::shared_ptr<Main::SessionShow> show,
+		MessageIdsList ids) {
+	const auto self = show->session().user();
+	auto &owner = self->owner();
+	const auto items = owner.idsToItems(ids);
+	if (items.empty()) {
+		return;
+	}
+	const auto donePhraseArgs = ChatHelpers::ForwardedMessagePhraseArgs{
+		.toCount = 1,
+		.singleMessage = (items.size() == 1),
+		.to1 = self,
+		.to2 = nullptr,
+	};
+	auto sendAction = Api::SendAction(owner.history(self));
+	sendAction.clearDraft = false;
+	show->session().api().forwardMessages(
+		Data::ResolvedForwardDraft{ .items = items },
+		std::move(sendAction),
+		[=] {
+			auto phrase = rpl::variable<TextWithEntities>(
+				ChatHelpers::ForwardedMessagePhrase(
+					donePhraseArgs)).current();
+			if (!phrase.empty()) {
+				show->showToast({
+					.text = std::move(phrase),
+					.filter = ChatHelpers::ForwardedToSavedMessagesFilter(
+						&show->session()),
+					.iconLottie = ChatHelpers::ForwardedMessagePhraseIcon(
+						donePhraseArgs),
+					.iconLottieSize = st::toastLottieIconSize,
+				});
+			}
+		});
+}
+
 void FastShareMessage(
 		not_null<Window::SessionController*> controller,
 		not_null<HistoryItem*> item,

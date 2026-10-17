@@ -39,6 +39,8 @@ namespace Dialogs {
 class Entry;
 enum class SortMode;
 
+[[nodiscard]] const style::DialogRow &DefaultChatListRowSt();
+
 [[nodiscard]] QRect CornerBadgeTTLRect(int photoSize);
 [[nodiscard]] QImage BlurredDarkenedPart(QImage image, QRect part);
 

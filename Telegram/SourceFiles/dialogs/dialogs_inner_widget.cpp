@@ -301,7 +301,7 @@ InnerWidget::InnerWidget(
 : RpWidget(parent)
 , _controller(controller)
 , _shownList(controller->session().data().chatsList()->indexed())
-, _st(&st::defaultDialogRow)
+, _st(&DefaultChatListRowSt())
 , _pinnedShiftAnimation([=](crl::time now) {
 	return pinnedShiftAnimationCallback(now);
 })
@@ -785,7 +785,7 @@ int InnerWidget::previewOffset() const {
 int InnerWidget::searchedOffset() const {
 	auto result = previewOffset();
 	if (!_previewResults.empty()) {
-		result += (_previewResults.size() * st::dialogsRowHeight)
+		result += (_previewResults.size() * _st->height)
 			+ st::searchedBarHeight;
 	}
 	return result;
@@ -868,7 +868,7 @@ void InnerWidget::changeOpenedForum(Data::Forum *forum) {
 		session().data().forumIcons().scheduleUserpicsReset(_openedForum);
 	}
 	_openedForum = forum;
-	_st = forum ? &st::forumTopicRow : &st::defaultDialogRow;
+	_st = forum ? &st::forumTopicRow : &DefaultChatListRowSt();
 	refreshShownList();
 	if (!forum && _openedCommunity) {
 		rebuildCommunitySections();
@@ -1002,7 +1002,7 @@ void InnerWidget::showSavedSublists() {
 
 	_filterId = 0;
 	_openedForum = nullptr;
-	_st = &st::defaultDialogRow;
+	_st = &DefaultChatListRowSt();
 	refreshShownList();
 
 	_openedForumLifetime.destroy();
@@ -6165,16 +6165,16 @@ void InnerWidget::repaintDialogRowCornerStatus(not_null<History*> history) {
 	).marginsAdded(
 		{ stroke, stroke, stroke, stroke }
 	).translated(
-		st::defaultDialogRow.padding.left(),
-		st::defaultDialogRow.padding.top()
+		_st->padding.left(),
+		_st->padding.top()
 	);
 	const auto ttlUpdateRect = !history->peer->messagesTTL()
 		? QRect()
 		: Dialogs::CornerBadgeTTLRect(
 			_st->photoSize
 		).translated(
-			st::defaultDialogRow.padding.left(),
-			st::defaultDialogRow.padding.top()
+			_st->padding.left(),
+			_st->padding.top()
 		);
 	updateDialogRow(
 		RowDescriptor(

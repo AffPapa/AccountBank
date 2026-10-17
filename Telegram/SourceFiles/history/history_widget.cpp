@@ -630,6 +630,8 @@ HistoryWidget::HistoryWidget(
 					std::nullopt,
 					Core::ReadMimeText(data))) {
 				return true;
+			} else if (InsertWithRewrittenLinks(_field, data)) {
+				return true;
 			}
 			offerRichPaste(data);
 			return false;

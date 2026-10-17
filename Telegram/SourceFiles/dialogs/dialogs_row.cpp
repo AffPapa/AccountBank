@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "dialogs/dialogs_row.h"
 
+#include "core/application.h"
+#include "core/core_settings.h"
 #include "ui/chat/chat_theme.h" // CountAverageColor.
 #include "ui/color_contrast.h"
 #include "ui/effects/credits_graphics.h"
@@ -403,6 +405,12 @@ Row::~Row() {
 	clearTopicJumpRipple();
 }
 
+const style::DialogRow &DefaultChatListRowSt() {
+	return Core::App().settings().compactChatList()
+		? st::compactDialogRow
+		: st::defaultDialogRow;
+}
+
 const style::DialogRow &Row::ComputeSt(
 		not_null<const Entry*> entry,
 		FilterId filterId) {
@@ -410,6 +418,9 @@ const style::DialogRow &Row::ComputeSt(
 		const auto hasTags = entry->hasChatsFilterTags(filterId);
 		const auto wideRow = history->peer->displayAsForum()
 			|| history->amMonoforumAdmin();
+		if (!wideRow && !hasTags) {
+			return DefaultChatListRowSt();
+		}
 		return wideRow
 			? (hasTags ? st::taggedForumDialogRow : st::forumDialogRow)
 			: hasTags
@@ -418,17 +429,22 @@ const style::DialogRow &Row::ComputeSt(
 	} else if (entry->asTopic()) {
 		return st::forumTopicRow;
 	}
-	return st::defaultDialogRow;
+	return DefaultChatListRowSt();
 }
 
 void Row::recountHeight(float64 narrowRatio, FilterId filterId) {
 	const auto &st = ComputeSt(_id.entry(), filterId);
-	_height = ((&st == &st::defaultDialogRow) || !_id.history())
-		? st::defaultDialogRow.height
-		: anim::interpolate(
+	if ((&st == &st::defaultDialogRow)
+		|| (&st == &st::compactDialogRow)) {
+		_height = st.height;
+	} else if (!_id.history()) {
+		_height = st::defaultDialogRow.height;
+	} else {
+		_height = anim::interpolate(
 			st.height,
 			st::defaultDialogRow.height,
 			narrowRatio);
+	}
 }
 
 uint64 Row::sortKey(FilterId filterId) const {

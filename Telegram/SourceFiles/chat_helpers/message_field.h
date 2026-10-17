@@ -238,4 +238,8 @@ void FrozenInfoBox(
 	Ui::InputField::MimeDataHook original,
 	not_null<Ui::InputField*> field);
 
+[[nodiscard]] bool InsertWithRewrittenLinks(
+	not_null<Ui::InputField*> field,
+	not_null<const QMimeData*> data);
+
 [[nodiscard]] bool PasteAsPlainTextRequested();
