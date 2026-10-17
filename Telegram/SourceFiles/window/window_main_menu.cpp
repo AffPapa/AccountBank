@@ -943,6 +943,22 @@ void MainMenu::setupMenu() {
 		Core::App().saveSettingsDelayed();
 		controller->showToast(tr::lng_accountbank_hide_birthdays_help(tr::now));
 	}, hideBirthdays->lifetime());
+	const auto ignoreMentions = addAction(
+		tr::lng_accountbank_ignore_group_mentions(),
+		{ &st::menuIconSettings }
+	)->toggleOn(rpl::single(Core::App().settings().readPref<bool>(
+		"accountbank-ignore-group-mentions")));
+	ignoreMentions->toggledChanges(
+	) | rpl::filter([=](bool value) {
+		return value != Core::App().settings().readPref<bool>(
+			"accountbank-ignore-group-mentions");
+	}) | rpl::on_next([=](bool value) {
+		Core::App().settings().writePref<bool>(
+			"accountbank-ignore-group-mentions", value);
+		Core::App().saveSettingsDelayed();
+		controller->showToast(
+			tr::lng_accountbank_ignore_group_mentions_help(tr::now));
+	}, ignoreMentions->lifetime());
 	addAction(
 		tr::lng_menu_settings(),
 		{ &st::menuIconSettings }

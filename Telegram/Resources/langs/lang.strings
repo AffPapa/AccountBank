@@ -9236,5 +9236,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_accountbank_hide_birthdays" = "Скрыть подсказки о днях рождения";
 "lng_accountbank_hide_birthdays_help" = "Подсказки исчезнут после повторного открытия клиента.";
 "lng_accountbank_service_time" = "Время у сервисных сообщений";
+"lng_accountbank_ignore_group_mentions" = "Без уведомлений об упоминаниях в группах";
+"lng_accountbank_ignore_group_mentions_help" = "Новые упоминания в группах останутся непрочитанными, но не покажут уведомление и не издадут звук.";
 
 // Keys finished

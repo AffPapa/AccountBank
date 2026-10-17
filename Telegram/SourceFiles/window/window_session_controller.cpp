@@ -130,11 +130,19 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_dialogs.h"
 #include "styles/style_layers.h" // st::boxLabel
 
+#include <string>
+
 namespace Window {
 namespace {
 
 constexpr auto kCustomThemesInMemory = 5;
 constexpr auto kMaxChatEntryHistorySize = 50;
+
+[[nodiscard]] std::string LastChatsFilterPrefKey(
+		not_null<Main::Session*> session) {
+	return "accountbank-last-chat-filter-"
+		+ std::to_string(session->uniqueId());
+}
 
 base::options::toggle OptionExternalMediaViewer({
 	.id = kOptionExternalMediaViewer,
@@ -2062,7 +2070,17 @@ void SessionController::activateFirstChatsFilter() {
 		return;
 	}
 	_filtersActivated = true;
-	setActiveChatsFilter(session().data().chatsFilters().defaultId());
+	const auto &filters = session().data().chatsFilters();
+	const auto saved = Core::App().settings().readPref<QByteArray>(
+		LastChatsFilterPrefKey(&session()));
+	auto parsed = false;
+	const auto savedId = saved.toInt(&parsed);
+	const auto found = ranges::find(
+		filters.list(), savedId, &Data::ChatFilter::id);
+	setActiveChatsFilter(
+		parsed && found != end(filters.list())
+			? savedId
+			: filters.defaultId());
 }
 
 bool SessionController::uniqueChatsInSearchResults(
@@ -3323,6 +3341,9 @@ void SessionController::setActiveChatsFilter(
 	const auto changed = (activeChatsFilterCurrent() != id);
 	if (changed) {
 		resetFakeUnreadWhileOpened();
+		Core::App().settings().writePref<QByteArray>(
+			LastChatsFilterPrefKey(&session()), QByteArray::number(id));
+		Core::App().saveSettingsDelayed();
 	}
 	_activeChatsFilter.force_assign(id);
 	if (id || !changed) {

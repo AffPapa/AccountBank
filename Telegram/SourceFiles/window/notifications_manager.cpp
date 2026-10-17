@@ -318,6 +318,11 @@ System::SkipState System::skipNotification(
 	if (!thread
 		|| !thread->currentNotification()
 		|| (messageType && item->skipNotification())
+		|| (messageType
+			&& Core::App().settings().readPref<bool>(
+				"accountbank-ignore-group-mentions")
+			&& !item->history()->peer->isUser()
+			&& item->mentionsMe())
 		|| (type == Data::ItemNotificationType::Reaction
 			&& skipSentNotification(item, _sentReactionNotifications))
 		|| (type == Data::ItemNotificationType::PollVote
