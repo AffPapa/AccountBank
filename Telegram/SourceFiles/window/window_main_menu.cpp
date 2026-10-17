@@ -913,6 +913,21 @@ void MainMenu::setupMenu() {
 		Core::App().saveSettingsDelayed();
 		controller->showToast(tr::lng_accountbank_time_seconds_help(tr::now));
 	}, seconds->lifetime());
+	const auto serviceTime = addAction(
+		tr::lng_accountbank_service_time(),
+		{ &st::menuIconSettings }
+	)->toggleOn(rpl::single(Core::App().settings().readPref<bool>(
+		"accountbank-service-time")));
+	serviceTime->toggledChanges(
+	) | rpl::filter([=](bool value) {
+		return value != Core::App().settings().readPref<bool>(
+			"accountbank-service-time");
+	}) | rpl::on_next([=](bool value) {
+		Core::App().settings().writePref<bool>(
+			"accountbank-service-time", value);
+		Core::App().saveSettingsDelayed();
+		controller->showToast(tr::lng_accountbank_time_seconds_help(tr::now));
+	}, serviceTime->lifetime());
 	const auto hideBirthdays = addAction(
 		tr::lng_accountbank_hide_birthdays(),
 		{ &st::menuIconSettings }

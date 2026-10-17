@@ -9235,5 +9235,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_accountbank_jump_to_date" = "Перейти к дате…";
 "lng_accountbank_hide_birthdays" = "Скрыть подсказки о днях рождения";
 "lng_accountbank_hide_birthdays_help" = "Подсказки исчезнут после повторного открытия клиента.";
+"lng_accountbank_service_time" = "Время у сервисных сообщений";
 
 // Keys finished

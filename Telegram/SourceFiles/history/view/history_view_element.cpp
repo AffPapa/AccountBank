@@ -2242,7 +2242,15 @@ void Element::validateText() {
 		const auto &customLinks = contextDependentText.text.empty()
 			? _textItem->customTextLinks()
 			: contextDependentText.links;
-		setTextWithLinks(markedText, customLinks);
+		if (Core::App().settings().readPref<bool>(
+				"accountbank-service-time")) {
+			auto shown = markedText;
+			shown.text += u" · "_q
+				+ QLocale().toString(dateTime().time(), QLocale::ShortFormat);
+			setTextWithLinks(shown, customLinks);
+		} else {
+			setTextWithLinks(markedText, customLinks);
+		}
 
 		if (const auto done = item->Get<HistoryServiceTodoCompletions>()) {
 			if (!done->completed.empty() && !done->incompleted.empty()) {
