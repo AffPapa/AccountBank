@@ -69,6 +69,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/widgets/popup_menu.h"
 #include "ui/widgets/scroll_area.h"
 #include "ui/widgets/labels.h"
+#include "chat_helpers/text_replacements.h"
+#include "core/core_settings.h"
+#include "ui/layers/box_content.h"
+#include "ui/widgets/fields/input_field.h"
 #include "ui/widgets/shadow.h"
 #include "ui/wrap/slide_wrap.h"
 #include "wallet/wallet_panel.h"
@@ -80,6 +84,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_chat.h" // popupMenuExpandedSeparator
 #include "styles/style_boxes.h"
 #include "styles/style_layers.h"
+#include "styles/style_chat_helpers.h"
 #include "styles/style_menu_icons.h"
 #include "styles/style_settings.h"
 #include "styles/style_wallet.h"
@@ -98,6 +103,40 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <QLocale>
 
 namespace {
+
+void ShowMessageFilterBox(not_null<Ui::GenericBox*> box) {
+	box->setTitle(tr::lng_accountbank_message_filter_title());
+	box->addRow(
+		object_ptr<Ui::FlatLabel>(
+			box,
+			tr::lng_accountbank_message_filter_about(),
+			st::boxLabel),
+		st::boxRowPadding);
+	const auto field = box->addRow(object_ptr<Ui::InputField>(
+		box.get(),
+		st::textReplacementsField,
+		Ui::InputField::Mode::MultiLine,
+		rpl::producer<QString>(),
+		TextWithTags{ QString::fromUtf8(
+			Core::App().settings().messageFilter()) }));
+	field->setSubmitSettings(Ui::InputField::SubmitSettings::CtrlEnter);
+	box->setFocusCallback([=] {
+		field->setFocusFast();
+	});
+	const auto save = [=] {
+		Core::App().settings().setMessageFilter(
+			field->getLastText().toUtf8());
+		box->closeBox();
+	};
+	field->submits(
+	) | rpl::on_next([=] {
+		save();
+	}, field->lifetime());
+	box->addButton(tr::lng_settings_save(), save);
+	box->addButton(tr::lng_cancel(), [=] {
+		box->closeBox();
+	});
+}
 
 class AccountBankAdminChats final : public PeerListController {
 public:
@@ -1070,6 +1109,18 @@ void MainMenu::setupMenu() {
 		} else {
 			controller->showToast(tr::lng_accountbank_cloud_creating(tr::now));
 		}
+	});
+	addAction(
+		tr::lng_accountbank_text_replacements_title(),
+		{ &st::menuIconSettings }
+	)->setClickedCallback([=] {
+		controller->show(Box(ChatHelpers::ShowTextReplacementsBox));
+	});
+	addAction(
+		tr::lng_accountbank_message_filter_menu(),
+		{ &st::menuIconSettings }
+	)->setClickedCallback([=] {
+		controller->show(Box(ShowMessageFilterBox));
 	});
 	if (controller->session().data().archive().legacyCloudChannelId()) {
 		addAction(

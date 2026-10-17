@@ -1892,3 +1892,16 @@ aiComposeBodyLabel: FlatLabel(defaultFlatLabel) {
 		}
 	}
 }
+
+textReplacementsField: InputField(defaultInputField) {
+	textBg: transparent;
+	textMargins: margins(2px, 8px, 2px, 8px);
+
+	border: 0px;
+	borderActive: 0px;
+
+	heightMin: 32px;
+	heightMax: 220px;
+
+	style: boxLabelStyle;
+}

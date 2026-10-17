@@ -12,6 +12,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "api/api_credits.h"
 #include "api/api_report.h"
 #include "api/api_statistics.h"
+#include "api/api_user_privacy.h"
 #include "apiwrap.h"
 #include "base/call_delayed.h"
 #include "base/event_filter.h"
@@ -1264,6 +1265,99 @@ private:
 
 };
 
+constexpr auto kPeekLastSeenTimeout = crl::time(3000);
+
+struct PeekLastSeenState final {
+	std::optional<Api::UserPrivacy::Rule> latest;
+	std::optional<Api::UserPrivacy::Rule> saved;
+	base::Timer timer;
+	rpl::lifetime lifetime;
+	bool active = false;
+};
+
+[[nodiscard]] rpl::producer<bool> PeekLastSeenVisibleValue(
+		not_null<UserData*> user) {
+	return user->session().changes().peerFlagsValue(
+		user,
+		Data::PeerUpdate::Flag::OnlineStatus
+	) | rpl::map([=] {
+		return user->lastseen().isHidden();
+	});
+}
+
+// WHY: the server sends the exact status only while the peer is in my own
+// StatusTimestamp exceptions, so we add it, wait for the update and restore.
+void PeekLastSeen(
+		not_null<UserData*> user,
+		std::shared_ptr<ChatHelpers::Show> show,
+		const std::shared_ptr<PeekLastSeenState> &state) {
+	if (state->active) {
+		return;
+	}
+	const auto session = &user->session();
+	const auto weak = base::make_weak(session);
+	const auto finish = [=](const QString &toast) {
+		if (!state->active) {
+			return;
+		}
+		state->active = false;
+		state->timer.cancel();
+		state->latest = state->saved;
+		if (const auto strong = weak.get()) {
+			if (!toast.isEmpty()) {
+				show->showToast(toast);
+			}
+			strong->api().userPrivacy().save(
+				Api::UserPrivacy::Key::LastSeen,
+				*state->saved);
+		}
+	};
+	const auto run = [=](Api::UserPrivacy::Rule rule) {
+		if (state->active) {
+			return;
+		}
+		state->active = true;
+		state->saved = rule;
+		session->changes().peerUpdates(
+			user,
+			Data::PeerUpdate::Flag::OnlineStatus
+		) | rpl::filter([=] {
+			return (user->lastseen().onlineTill() > 0);
+		}) | rpl::take(1) | rpl::on_next([=] {
+			const auto lastseen = user->lastseen();
+			finish(lastseen.isOnline(base::unixtime::now())
+				? tr::lng_accountbank_peek_lastseen_online(tr::now)
+				: tr::lng_accountbank_peek_lastseen_result(
+					tr::now,
+					lt_time,
+					langDateTimeFull(base::unixtime::parse(
+						lastseen.onlineTill()))));
+		}, state->lifetime);
+		state->timer.setCallback([=] {
+			finish(tr::lng_accountbank_peek_lastseen_failed(tr::now));
+		});
+		state->timer.callOnce(kPeekLastSeenTimeout);
+		auto modified = rule;
+		if (!ranges::contains(modified.always.peers, user)) {
+			modified.always.peers.push_back(user);
+		}
+		auto &never = modified.never.peers;
+		never.erase(
+			std::remove(never.begin(), never.end(), user),
+			never.end());
+		session->api().userPrivacy().save(
+			Api::UserPrivacy::Key::LastSeen,
+			modified);
+	};
+	if (state->latest) {
+		run(*state->latest);
+	} else {
+		session->api().userPrivacy().value(
+			Api::UserPrivacy::Key::LastSeen
+		) | rpl::take(1) | rpl::on_next(run, state->lifetime);
+	}
+}
+
 class ActionsFiller {
 public:
 	ActionsFiller(
@@ -1280,6 +1374,7 @@ private:
 	void addShareContactAction(not_null<UserData*> user);
 	void addEditContactAction(not_null<UserData*> user);
 	void addDeleteContactAction(not_null<UserData*> user);
+	void addPeekLastSeenAction(not_null<UserData*> user);
 	void addBotCommandActions(not_null<UserData*> user);
 	void addFastButtonsMode(not_null<UserData*> user);
 	void addReportAction();
@@ -2940,6 +3035,31 @@ void ActionsFiller::addDeleteContactAction(not_null<UserData*> user) {
 		&st::infoIconDelete);
 }
 
+void ActionsFiller::addPeekLastSeenAction(not_null<UserData*> user) {
+	if (user->isSelf()
+		|| user->isBot()
+		|| user->isServiceUser()
+		|| user->isVerifyCodes()) {
+		return;
+	}
+	const auto controller = _controller->parentController();
+	const auto show = controller->uiShow();
+	const auto state = std::make_shared<PeekLastSeenState>();
+	auto &privacy = user->session().api().userPrivacy();
+	privacy.reload(Api::UserPrivacy::Key::LastSeen);
+	privacy.value(
+		Api::UserPrivacy::Key::LastSeen
+	) | rpl::on_next([=](Api::UserPrivacy::Rule rule) {
+		state->latest = rule;
+	}, _wrap->lifetime());
+	AddActionButton(
+		_wrap,
+		tr::lng_accountbank_peek_lastseen(),
+		PeekLastSeenVisibleValue(user),
+		[=] { PeekLastSeen(user, show, state); },
+		nullptr);
+}
+
 void ActionsFiller::addFastButtonsMode(not_null<UserData*> user) {
 	Expects(user->isBot());
 
@@ -3172,6 +3292,7 @@ void ActionsFiller::fillUserActions(not_null<UserData*> user) {
 		addEditContactAction(user);
 		addDeleteContactAction(user);
 	}
+	addPeekLastSeenAction(user);
 	if (CanReportBot(user)) {
 		addBotCommandActions(user);
 		_wrap->add(CreateSkipWidget(_wrap, st::infoBlockButtonSkip));

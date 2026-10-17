@@ -288,7 +288,7 @@ void FillChooseFilterMenu(
 	const auto suppressClose = menu->lifetime().make_state<bool>(false);
 	for (const auto &filter : list) {
 		const auto id = filter.id();
-		if (!id) {
+		if (!id || filter.localAdmins()) {
 			continue;
 		}
 

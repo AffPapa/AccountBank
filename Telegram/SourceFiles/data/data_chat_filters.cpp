@@ -13,12 +13,14 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_user.h"
 #include "data/data_chat.h"
 #include "data/data_channel.h"
+#include "data/data_changes.h"
 #include "data/data_session.h"
 #include "data/data_folder.h"
 #include "data/data_histories.h"
 #include "dialogs/dialogs_main_list.h"
 #include "history/history.h"
 #include "history/history_unread_things.h"
+#include "lang/lang_keys.h"
 #include "ui/ui_utility.h"
 #include "ui/chat/more_chats_bar.h"
 #include "main/main_session.h"
@@ -324,6 +326,10 @@ bool ChatFilter::hasMyLinks() const {
 	return _flags & Flag::HasMyLinks;
 }
 
+bool ChatFilter::localAdmins() const {
+	return _flags & Flag::LocalAdmins;
+}
+
 const base::flat_set<not_null<History*>> &ChatFilter::always() const {
 	return _always;
 }
@@ -339,6 +345,19 @@ const base::flat_set<not_null<History*>> &ChatFilter::never() const {
 bool ChatFilter::contains(
 		not_null<History*> history,
 		bool ignoreFakeUnread) const {
+	if (_flags & Flag::LocalAdmins) {
+		const auto admin = [&] {
+			if (const auto chat = history->peer->asChat()) {
+				return chat->amCreator() || chat->hasAdminRights();
+			} else if (const auto channel = history->peer->asChannel()) {
+				return channel->amCreator() || channel->hasAdminRights();
+			}
+			return false;
+		}();
+		return admin
+			&& (!(_flags & Flag::NoArchived)
+				|| (history->folderKnown() && !history->folder()));
+	}
 	const auto flag = [&] {
 		const auto peer = history->peer;
 		if (const auto user = peer->asUser()) {
@@ -391,6 +410,26 @@ ChatFilters::ChatFilters(not_null<Session*> owner)
 : _owner(owner)
 , _moreChatsTimer([=] { checkLoadMoreChatsLists(); }) {
 	_list.emplace_back();
+	if (!ranges::contains(_list, kAdminFilterId, &ChatFilter::id)) {
+		_list.emplace_back(
+			kAdminFilterId,
+			ChatFilterTitle{
+				TextWithEntities{ tr::lng_accountbank_admin_folder(tr::now) },
+				true },
+			QString(),
+			std::nullopt,
+		(ChatFilter::Flag::LocalAdmins | ChatFilter::Flag::NoArchived),
+		base::flat_set<not_null<History*>>(),
+		std::vector<not_null<History*>>(),
+		base::flat_set<not_null<History*>>());
+	}
+	owner->session().changes().peerUpdates(
+		Data::PeerUpdate::Flag::Admins | Data::PeerUpdate::Flag::Rights
+	) | rpl::on_next([=](const Data::PeerUpdate &update) {
+		if (const auto history = owner->historyLoaded(update.peer)) {
+			refreshHistory(history);
+		}
+	}, _lifetime);
 	crl::on_main(&owner->session(), [=] { load(); });
 }
 
@@ -510,7 +549,7 @@ void ChatFilters::received(const QVector<MTPDialogFilter> &list) {
 		}
 		++position;
 	}
-	while (position < _list.size()) {
+	while (position < _list.size() && !_list[position].localAdmins()) {
 		applyRemove(position);
 		changed = true;
 	}
@@ -797,7 +836,10 @@ bool ChatFilters::applyChange(ChatFilter &filter, ChatFilter &&updated) {
 }
 
 bool ChatFilters::applyOrder(const QVector<MTPint> &order) {
-	if (order.size() != _list.size()) {
+	const auto locals = int(ranges::count_if(
+		_list,
+		[](const ChatFilter &filter) { return filter.localAdmins(); }));
+	if (order.size() + locals != _list.size()) {
 		return false;
 	} else if (_list.empty()) {
 		return true;
@@ -878,7 +920,10 @@ void ChatFilters::saveOrder(
 	auto ids = QVector<MTPint>();
 	ids.reserve(order.size());
 	for (const auto id : order) {
-		ids.push_back(MTP_int(id));
+		const auto i = ranges::find(_list, id, &ChatFilter::id);
+		if (i == end(_list) || !i->localAdmins()) {
+			ids.push_back(MTP_int(id));
+		}
 	}
 	const auto wrapped = MTP_vector<MTPint>(ids);
 

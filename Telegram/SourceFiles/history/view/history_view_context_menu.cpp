@@ -94,6 +94,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_message_reactions.h"
 #include "data/data_user.h"
 #include "data/stickers/data_custom_emoji.h"
+#include "data/stickers/data_stickers_set.h"
 #include "chat_helpers/message_field.h" // FactcheckFieldIniter.
 #include "core/file_utilities.h"
 #include "core/click_handler_types.h"
@@ -355,6 +356,28 @@ void ShowStickerPackInfo(
 	StickerSetBox::Show(list->controller()->uiShow(), document);
 }
 
+void AddStickerPackOwnerAction(
+		not_null<Ui::PopupMenu*> menu,
+		not_null<DocumentData*> document,
+		not_null<Window::SessionController*> controller) {
+	const auto sticker = document->sticker();
+	if (!sticker || !sticker->set.id) {
+		return;
+	}
+	const auto session = &document->session();
+	const auto &sets = session->data().stickers().sets();
+	const auto i = sets.find(sticker->set.id);
+	if (i == sets.end()
+		|| !(i->second->flags & Data::StickersSetFlag::AmCreator)) {
+		return;
+	}
+	const auto user = session->user();
+	menu->addAction(
+		tr::lng_accountbank_sticker_pack_owner(tr::now),
+		[=] { controller->showPeerInfo(user); },
+		&st::menuIconStickers);
+}
+
 void ToggleFavedSticker(
 		not_null<Window::SessionController*> controller,
 		not_null<DocumentData*> document,
@@ -470,6 +493,7 @@ void AddDocumentActions(
 				: tr::lng_context_pack_add(tr::now)),
 			[=] { ShowStickerPackInfo(document, list); },
 			&st::menuIconStickers);
+		AddStickerPackOwnerAction(menu, document, controller);
 	}
 	const auto sending = item && item->isSending();
 	if (!sending && document->sticker() && !document->sticker()->set) {
@@ -1398,6 +1422,52 @@ void AddTopMessageActions(
 	AddViewStatisticsAction(menu, request, list);
 }
 
+void AddIgnoreUserAction(
+	not_null<Ui::PopupMenu*> menu,
+	const ContextMenuRequest &request,
+	not_null<ListWidget*> list);
+
+void AddIgnoreUserAction(
+		not_null<Ui::PopupMenu*> menu,
+		const ContextMenuRequest &request,
+		not_null<ListWidget*> list) {
+	const auto item = request.item;
+	if (!item || !request.selectedItems.empty() || !item->from() || item->out()) {
+		return;
+	}
+	const auto from = item->from();
+	if (!from->isUser()) {
+		return;
+	}
+	const auto userId = from->id.value;
+	const auto ignored = [&] {
+		const auto raw = Core::App().settings().ignoredUsers();
+		return raw.split(',').contains(
+			QByteArray::number(userId));
+	}();
+	menu->addAction(
+		ignored
+			? tr::lng_accountbank_unignore_user(tr::now)
+			: tr::lng_accountbank_ignore_user(tr::now),
+		[=] {
+			const auto toggle = QByteArray::number(userId);
+			auto raw = Core::App().settings().ignoredUsers();
+			auto parts = raw.isEmpty()
+				? QList<QByteArray>()
+				: QList<QByteArray>(raw.split(','));
+			if (ignored) {
+				parts.removeAll(toggle);
+			} else {
+				parts.push_back(toggle);
+			}
+			Core::App().settings().setIgnoredUsers(parts.join(','));
+			if (const auto current = item) {
+				current->history()->owner().requestItemRepaint(current);
+			}
+		},
+		&st::menuIconBlock);
+}
+
 void AddMessageActions(
 		not_null<Ui::PopupMenu*> menu,
 		const ContextMenuRequest &request,
@@ -1448,6 +1518,7 @@ void AddMessageActions(
 	AddSaveRichHtmlAction(menu, request, list);
 	AddReportAction(menu, request, list);
 	AddBlockSenderAction(menu, request, list);
+	AddIgnoreUserAction(menu, request, list);
 	if (request.item && request.selectedItems.empty()) {
 		AddEphemeralMessageActions(
 			menu,

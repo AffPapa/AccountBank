@@ -43,6 +43,9 @@ inline constexpr auto kGhostModeKey = "ghost-mode"_cs;
 inline constexpr auto kHideSponsoredKey = "hide-sponsored"_cs;
 inline constexpr auto kKeepDeletedKey = "keep-deleted"_cs;
 inline constexpr auto kAllowCopyRestrictedKey = "allow-copy-restricted"_cs;
+inline constexpr auto kTextReplacementsKey = "text-replacements"_cs;
+inline constexpr auto kMessageFilterKey = "message-filter"_cs;
+inline constexpr auto kIgnoredUsersKey = "ignored-users"_cs;
 inline constexpr auto kStreamerModeKey = "streamer-mode"_cs;
 inline constexpr auto kCompactChatListKey = "compact-chat-list"_cs;
 inline constexpr auto kUnreadFirstKey = "unread-first"_cs;
@@ -218,6 +221,24 @@ public:
 	}
 	void setAllowCopyRestricted(bool value) {
 		writePref<bool>(kAllowCopyRestrictedKey, value);
+	}
+	[[nodiscard]] QByteArray textReplacements() {
+		return readPref<QByteArray>(kTextReplacementsKey);
+	}
+	void setTextReplacements(const QByteArray &value) {
+		writePref<QByteArray>(kTextReplacementsKey, value);
+	}
+	[[nodiscard]] QByteArray messageFilter() {
+		return readPref<QByteArray>(kMessageFilterKey);
+	}
+	void setMessageFilter(const QByteArray &value) {
+		writePref<QByteArray>(kMessageFilterKey, value);
+	}
+	[[nodiscard]] QByteArray ignoredUsers() {
+		return readPref<QByteArray>(kIgnoredUsersKey);
+	}
+	void setIgnoredUsers(const QByteArray &value) {
+		writePref<QByteArray>(kIgnoredUsersKey, value);
 	}
 	[[nodiscard]] bool streamerMode() {
 		return readPref<bool>(kStreamerModeKey, false);

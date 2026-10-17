@@ -13,6 +13,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/qt/qt_key_modifiers.h"
 #include "base/unixtime.h"
 #include "core/application.h"
+#include "core/core_settings.h"
 #include "core/click_handler_types.h" // ClickHandlerContext
 #include "core/ui_integration.h"
 #include "core/update_checker.h"
@@ -71,8 +72,56 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_iv.h"
 #include "styles/style_polls.h"
 
+#include <QRegularExpression>
+#include <QSet>
+
 namespace HistoryView {
 namespace {
+
+[[nodiscard]] QSet<quint64> IgnoredUserIds() {
+	static auto cachedFor = QByteArray();
+	static auto cached = QSet<quint64>();
+	const auto raw = Core::App().settings().ignoredUsers();
+	if (raw != cachedFor) {
+		cachedFor = raw;
+		cached.clear();
+		for (const auto &part : raw.split(',')) {
+			auto ok = false;
+			const auto id = part.toULongLong(&ok);
+			if (ok && id) {
+				cached.insert(id);
+			}
+		}
+	}
+	return cached;
+}
+
+[[nodiscard]] std::optional<QRegularExpression> MessageFilterRegex() {
+	static auto cachedFor = QByteArray();
+	static auto cached = std::optional<QRegularExpression>();
+	const auto raw = Core::App().settings().messageFilter();
+	if (raw != cachedFor) {
+		cachedFor = raw;
+		auto expression = QRegularExpression(
+			QString::fromUtf8(raw));
+		cached = expression.isValid()
+			? std::optional<QRegularExpression>(std::move(expression))
+			: std::nullopt;
+	}
+	return cached;
+}
+
+[[nodiscard]] bool MessageDimmedByFilter(not_null<const HistoryItem*> item) {
+	if (!item->isRegular() || item->out()) {
+		return false;
+	}
+	const auto from = item->from();
+	if (from && IgnoredUserIds().contains(from->id.value)) {
+		return true;
+	}
+	const auto regex = MessageFilterRegex();
+	return regex && regex->match(item->originalText().text).hasMatch();
+}
 
 base::options::toggle UnlimitedMessageWidth({
 	.id = kOptionUnlimitedMessageWidth,
@@ -1808,13 +1857,15 @@ void Message::draw(Painter &p, const PaintContext &context) const {
 	if (selectionTranslation) {
 		p.translate(selectionTranslation, 0);
 	}
-	const auto deletedDimmed = item->isServerDeleted();
-	const auto savedOpacity = deletedDimmed ? p.opacity() : 1.;
-	if (deletedDimmed) {
-		p.setOpacity(0.55);
+	const auto dimmed = item->isServerDeleted()
+		|| MessageDimmedByFilter(item);
+	const auto dimmedOpacity = item->isServerDeleted() ? 0.55 : 0.15;
+	const auto savedOpacity = dimmed ? p.opacity() : 1.;
+	if (dimmed) {
+		p.setOpacity(dimmedOpacity);
 	}
 	const auto restoreOpacity = gsl::finally([&] {
-		if (deletedDimmed) {
+		if (dimmed) {
 			p.setOpacity(savedOpacity);
 		}
 	});

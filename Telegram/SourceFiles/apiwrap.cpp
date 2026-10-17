@@ -41,6 +41,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "api/api_premium.h"
 #include "api/api_user_names.h"
 #include "api/api_websites.h"
+#include "chat_helpers/text_replacements.h"
 #include "data/business/data_shortcut_messages.h"
 #include "data/components/credits.h"
 #include "data/components/ephemeral_messages.h"
@@ -4802,6 +4803,7 @@ void ApiWrap::sendMessage(
 		textWithTags.text,
 		TextUtilities::ConvertTextTagsToEntities(textWithTags.tags)
 	};
+	left = ChatHelpers::ApplyTextReplacements(std::move(left));
 	auto prepareFlags = Ui::ItemTextOptions(
 		history,
 		_session->user()).flags;

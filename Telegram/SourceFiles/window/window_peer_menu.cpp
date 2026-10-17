@@ -123,6 +123,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/application.h"
 #include "core/ui_integration.h"
 #include "boxes/peers/edit_participants_box.h"
+#include "boxes/peers/accountbank_chat_rights_box.h"
 #include "boxes/peers/edit_peer_info_box.h"
 #include "boxes/peers/manage_community_box.h"
 #include "boxes/premium_preview_box.h"
@@ -1944,6 +1945,14 @@ void Filler::fillHistoryActions() {
 				chat,
 				ParticipantsBoxController::Role::Admins);
 		}, &st::menuIconAdmin);
+	}
+	if (_peer->isChat() || _peer->isChannel()) {
+		const auto rightsPeer = _peer;
+		const auto controller = _controller;
+		_addAction(tr::lng_accountbank_chat_rights(tr::now), [=] {
+			controller->show(
+				Box(AccountBankChatRightsBox, rightsPeer));
+		}, &st::menuIconManage);
 	}
 	addSupportInfo();
 	addToggleNoForwards();

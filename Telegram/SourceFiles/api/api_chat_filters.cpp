@@ -872,6 +872,11 @@ void SaveNewFilterPinned(
 		FilterId filterId) {
 	const auto &order = session->data().pinnedChatsOrder(filterId);
 	auto &filters = session->data().chatsFilters();
+	const auto &list = filters.list();
+	const auto i = ranges::find(list, filterId, &Data::ChatFilter::id);
+	if (i != end(list) && i->localAdmins()) {
+		return;
+	}
 	const auto &filter = filters.applyUpdatedPinned(filterId, order);
 	session->api().request(MTPmessages_UpdateDialogFilter(
 		MTP_flags(MTPmessages_UpdateDialogFilter::Flag::f_filter),

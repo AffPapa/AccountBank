@@ -7,6 +7,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "boxes/peers/edit_peer_requests_box.h"
 
+#include "api/api_chat_participants.h"
 #include "api/api_invite_links.h"
 #include "apiwrap.h"
 #include "base/unixtime.h"
@@ -40,11 +41,14 @@ constexpr auto kPerPage = 200;
 constexpr auto kServerSearchDelay = crl::time(1000);
 constexpr auto kAcceptButton = 1;
 constexpr auto kRejectButton = 2;
+constexpr auto kBanButton = 3;
 
 class RowDelegate {
 public:
 	[[nodiscard]] virtual QSize rowAcceptButtonSize() = 0;
 	[[nodiscard]] virtual QSize rowRejectButtonSize() = 0;
+	[[nodiscard]] virtual QSize rowBanButtonSize() = 0;
+	[[nodiscard]] virtual bool rowBanVisible() const = 0;
 	virtual void rowPaintAccept(
 		Painter &p,
 		QRect geometry,
@@ -52,6 +56,12 @@ public:
 		int outerWidth,
 		bool over) = 0;
 	virtual void rowPaintReject(
+		Painter &p,
+		QRect geometry,
+		std::unique_ptr<Ui::RippleAnimation> &ripple,
+		int outerWidth,
+		bool over) = 0;
+	virtual void rowPaintBan(
 		Painter &p,
 		QRect geometry,
 		std::unique_ptr<Ui::RippleAnimation> &ripple,
@@ -85,6 +95,7 @@ private:
 	const not_null<RowDelegate*> _delegate;
 	std::unique_ptr<Ui::RippleAnimation> _acceptRipple;
 	std::unique_ptr<Ui::RippleAnimation> _rejectRipple;
+	std::unique_ptr<Ui::RippleAnimation> _banRipple;
 
 };
 
@@ -98,7 +109,7 @@ Row::Row(
 }
 
 int Row::elementsCount() const {
-	return 2;
+	return _delegate->rowBanVisible() ? 3 : 2;
 }
 
 QRect Row::elementGeometry(int element, int outerWidth) const {
@@ -113,6 +124,19 @@ QRect Row::elementGeometry(int element, int outerWidth) const {
 		return QRect(
 			(st::communityRequestAcceptPosition
 				+ QPoint(accept.width() + st::requestButtonsSkip, 0)),
+			size);
+	} break;
+	case kBanButton: {
+		const auto accept = _delegate->rowAcceptButtonSize();
+		const auto reject = _delegate->rowRejectButtonSize();
+		const auto size = _delegate->rowBanButtonSize();
+		return QRect(
+			(st::communityRequestAcceptPosition
+				+ QPoint(
+					accept.width()
+						+ reject.width()
+						+ 2 * st::requestButtonsSkip,
+					0)),
 			size);
 	} break;
 	}
@@ -135,21 +159,28 @@ void Row::elementAddRipple(
 		? &_acceptRipple
 		: (element == kRejectButton)
 		? &_rejectRipple
+		: (element == kBanButton)
+		? &_banRipple
 		: nullptr;
 	if (!pointer) {
 		return;
 	}
 	auto &ripple = *pointer;
 	if (!ripple) {
+		const auto ban = (element == kBanButton);
 		auto mask = Ui::RippleAnimation::RoundRectMask(
-			(element == kAcceptButton
-				? _delegate->rowAcceptButtonSize()
-				: _delegate->rowRejectButtonSize()),
+			ban
+				? _delegate->rowBanButtonSize()
+				: (element == kAcceptButton
+					? _delegate->rowAcceptButtonSize()
+					: _delegate->rowRejectButtonSize()),
 			st::requestsAcceptButton.height / 2);
 		ripple = std::make_unique<Ui::RippleAnimation>(
-			(element == kAcceptButton
-				? st::requestsAcceptButton.ripple
-				: st::requestsRejectButton.ripple),
+			ban
+				? st::requestsBanButton.ripple
+				: (element == kAcceptButton
+					? st::requestsAcceptButton.ripple
+					: st::requestsRejectButton.ripple),
 			std::move(mask),
 			std::move(updateCallback));
 	}
@@ -163,6 +194,9 @@ void Row::elementsStopLastRipple() {
 	if (_rejectRipple) {
 		_rejectRipple->lastStop();
 	}
+	if (_banRipple) {
+		_banRipple->lastStop();
+	}
 }
 
 void Row::elementsPaint(
@@ -172,6 +206,7 @@ void Row::elementsPaint(
 		int selectedElement) {
 	const auto accept = elementGeometry(kAcceptButton, outerWidth);
 	const auto reject = elementGeometry(kRejectButton, outerWidth);
+	const auto ban = elementGeometry(kBanButton, outerWidth);
 
 	const auto over = [&](int element) {
 		return (selectedElement == element);
@@ -188,16 +223,26 @@ void Row::elementsPaint(
 		_rejectRipple,
 		outerWidth,
 		over(kRejectButton));
+	if (_delegate->rowBanVisible()) {
+		_delegate->rowPaintBan(
+			p,
+			ban,
+			_banRipple,
+			outerWidth,
+			over(kBanButton));
+	}
 }
 
 } // namespace
 
 class RequestsBoxController::RowHelper final : public RowDelegate {
 public:
-	explicit RowHelper(bool isGroup);
+	explicit RowHelper(bool isGroup, bool canBan);
 
 	[[nodiscard]] QSize rowAcceptButtonSize() override;
 	[[nodiscard]] QSize rowRejectButtonSize() override;
+	[[nodiscard]] QSize rowBanButtonSize() override;
+	[[nodiscard]] bool rowBanVisible() const override;
 	void rowPaintAccept(
 		Painter &p,
 		QRect geometry,
@@ -205,6 +250,12 @@ public:
 		int outerWidth,
 		bool over) override;
 	void rowPaintReject(
+		Painter &p,
+		QRect geometry,
+		std::unique_ptr<Ui::RippleAnimation> &ripple,
+		int outerWidth,
+		bool over) override;
+	void rowPaintBan(
 		Painter &p,
 		QRect geometry,
 		std::unique_ptr<Ui::RippleAnimation> &ripple,
@@ -228,14 +279,19 @@ private:
 	Ui::RoundRect _acceptRectOver;
 	Ui::RoundRect _rejectRect;
 	Ui::RoundRect _rejectRectOver;
+	Ui::RoundRect _banRect;
+	Ui::RoundRect _banRectOver;
 	QString _acceptText;
 	QString _rejectText;
+	QString _banText;
 	int _acceptTextWidth = 0;
 	int _rejectTextWidth = 0;
+	int _banTextWidth = 0;
+	bool _banVisible = false;
 
 };
 
-RequestsBoxController::RowHelper::RowHelper(bool isGroup)
+RequestsBoxController::RowHelper::RowHelper(bool isGroup, bool canBan)
 : _acceptRect(
 	st::requestsAcceptButton.height / 2,
 	st::requestsAcceptButton.textBg)
@@ -248,12 +304,21 @@ RequestsBoxController::RowHelper::RowHelper(bool isGroup)
 , _rejectRectOver(
 	st::requestsAcceptButton.height / 2,
 	st::requestsRejectButton.textBgOver)
+, _banRect(
+	st::requestsAcceptButton.height / 2,
+	st::requestsBanButton.textBg)
+, _banRectOver(
+	st::requestsAcceptButton.height / 2,
+	st::requestsBanButton.textBgOver)
 , _acceptText(isGroup
 	? tr::lng_group_requests_add(tr::now)
 	: tr::lng_group_requests_add_channel(tr::now))
 , _rejectText(tr::lng_group_requests_dismiss(tr::now))
+, _banText(tr::lng_accountbank_ban_user(tr::now))
 , _acceptTextWidth(st::requestsAcceptButton.style.font->width(_acceptText))
-, _rejectTextWidth(st::requestsRejectButton.style.font->width(_rejectText)) {
+, _rejectTextWidth(st::requestsRejectButton.style.font->width(_rejectText))
+, _banTextWidth(st::requestsBanButton.style.font->width(_banText))
+, _banVisible(canBan) {
 }
 
 RequestsBoxController::RequestsBoxController(
@@ -261,7 +326,11 @@ RequestsBoxController::RequestsBoxController(
 	not_null<PeerData*> peer)
 : PeerListController(CreateSearchController(peer))
 , _navigation(navigation)
-, _helper(std::make_unique<RowHelper>(!peer->isBroadcast()))
+, _helper(std::make_unique<RowHelper>(
+	!peer->isBroadcast(),
+	peer->isChat()
+		? peer->asChat()->canBanMembers()
+		: (peer->asChannel() && peer->asChannel()->canBanMembers())))
 , _peer(peer)
 , _api(&_peer->session().mtp()) {
 	setStyleOverrides(&st::communityRequestsBoxList);
@@ -421,7 +490,35 @@ void RequestsBoxController::rowClicked(not_null<PeerListRow*> row) {
 void RequestsBoxController::rowElementClicked(
 		not_null<PeerListRow*> row,
 		int element) {
-	processRequest(row->peer()->asUser(), (element == kAcceptButton));
+	if (element == kBanButton) {
+		if (const auto user = row->peer()->asUser()) {
+			banRequest(user);
+		}
+	} else {
+		processRequest(row->peer()->asUser(), (element == kAcceptButton));
+	}
+}
+
+void RequestsBoxController::banRequest(not_null<UserData*> user) {
+	const auto channel = _peer->asChannel();
+	if (!channel || !channel->canBanMembers()) {
+		return;
+	}
+	const auto remove = [=] {
+		if (const auto row = delegate()->peerListFindRow(user->id.value)) {
+			delegate()->peerListRemoveRow(row);
+			refreshDescription();
+			delegate()->peerListRefreshRows();
+		}
+		static_cast<RequestsBoxSearchController*>(
+			searchController())->removeFromCache(user);
+	};
+	remove();
+	channel->session().api().chatParticipants().kick(
+		channel,
+		user,
+		ChatRestrictionsInfo());
+	processRequest(user, false);
 }
 
 void RequestsBoxController::processRequest(
@@ -486,6 +583,18 @@ QSize RequestsBoxController::RowHelper::rowRejectButtonSize() {
 	};
 }
 
+QSize RequestsBoxController::RowHelper::rowBanButtonSize() {
+	const auto &st = st::requestsBanButton;
+	return {
+		 (st.width <= 0) ? (_banTextWidth - st.width) : st.width,
+		 st.height,
+	};
+}
+
+bool RequestsBoxController::RowHelper::rowBanVisible() const {
+	return _banVisible;
+}
+
 void RequestsBoxController::RowHelper::rowPaintAccept(
 		Painter &p,
 		QRect geometry,
@@ -520,6 +629,25 @@ void RequestsBoxController::RowHelper::rowPaintReject(
 		ripple,
 		_rejectText,
 		_rejectTextWidth,
+		outerWidth,
+		over);
+}
+
+void RequestsBoxController::RowHelper::rowPaintBan(
+		Painter &p,
+		QRect geometry,
+		std::unique_ptr<Ui::RippleAnimation> &ripple,
+		int outerWidth,
+		bool over) {
+	paintButton(
+		p,
+		geometry,
+		st::requestsBanButton,
+		_banRect,
+		_banRectOver,
+		ripple,
+		_banText,
+		_banTextWidth,
 		outerWidth,
 		over);
 }

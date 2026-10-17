@@ -71,6 +71,7 @@ private:
 	void appendRow(not_null<UserData*> user, TimeId date);
 	void refreshDescription();
 	void processRequest(not_null<UserData*> user, bool approved);
+	void banRequest(not_null<UserData*> user);
 
 	void subscribeToMigration();
 	void migrate(not_null<ChatData*> chat, not_null<ChannelData*> channel);

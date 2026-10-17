@@ -9250,5 +9250,20 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_accountbank_copy_button_data" = "Копировать данные кнопки";
 "lng_accountbank_repeat_message" = "Повторить сообщение";
 "lng_accountbank_forward_saved" = "Переслать в «Избранное»";
+"lng_accountbank_peek_lastseen" = "Показать точный статус";
+"lng_accountbank_peek_lastseen_result" = "Был(а) в сети: {time}";
+"lng_accountbank_peek_lastseen_online" = "Сейчас в сети";
+"lng_accountbank_peek_lastseen_failed" = "Не удалось получить статус";
 
 // Keys finished
+"lng_accountbank_admin_folder" = "Admin";
+"lng_accountbank_text_replacements_title" = "Text replacements";
+"lng_accountbank_text_replacements_about" = "One per line: shortcut=replacement";
+"lng_accountbank_chat_rights" = "Chat rights";
+"lng_accountbank_ban_user" = "Ban";
+"lng_accountbank_sticker_pack_owner" = "Sticker pack owner";
+"lng_accountbank_message_filter_menu" = "Message filter";
+"lng_accountbank_message_filter_title" = "Message filter";
+"lng_accountbank_message_filter_about" = "Regular expression. Incoming messages that match are shown dimmed.";
+"lng_accountbank_ignore_user" = "Ignore user";
+"lng_accountbank_unignore_user" = "Stop ignoring user";

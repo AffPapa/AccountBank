@@ -68,12 +68,14 @@ void ShowMenu(
 	const auto session = &controller->session();
 
 	auto id = FilterId(0);
+	auto local = false;
 	{
 		const auto &list = session->data().chatsFilters().list();
 		if (index < 0 || index >= list.size()) {
 			return;
 		}
 		id = list[index].id();
+		local = list[index].localAdmins();
 	}
 	state->menu = base::make_unique_q<Ui::PopupMenu>(
 		parent,
@@ -81,7 +83,7 @@ void ShowMenu(
 	const auto addAction = Ui::Menu::CreateAddActionCallback(
 		state->menu.get());
 
-	if (id) {
+	if (id && !local) {
 		addAction(
 			tr::lng_filters_context_edit(tr::now),
 			[=] { EditExistingFilter(controller, id); },
@@ -102,6 +104,12 @@ void ShowMenu(
 			.icon = &st::menuIconDeleteAttention,
 			.isAttention = true,
 		});
+	} else if (id && local) {
+		MarkAsReadMenu::AddChatListAction(
+			controller,
+			MarkAsReadMenu::ChatListKind::Folder,
+			[=] { return session->data().chatsFilters().chatsList(id); },
+			addAction);
 	} else {
 		MarkAsReadMenu::AddChatListAction(
 			controller,
@@ -313,9 +321,9 @@ not_null<Ui::RpWidget*> AddChatFiltersTabsStrip(
 					if (x >= left && x < right) {
 						const auto &list
 							= session->data().chatsFilters().list();
-						return (i < list.size())
-							? list[i].id()
-							: FilterId();
+						return (i < list.size() && !list[i].localAdmins())
+							? std::optional<FilterId>(list[i].id())
+							: std::nullopt;
 					}
 				}
 				return std::nullopt;
@@ -428,6 +436,11 @@ not_null<Ui::RpWidget*> AddChatFiltersTabsStrip(
 				state->reorder->addPinnedInterval(
 					premiumFrom,
 					std::max(1, int(list.size()) - maxLimit));
+				if (!list.empty() && list.back().localAdmins()) {
+					state->reorder->addPinnedInterval(
+						int(list.size()) - 1,
+						1);
+				}
 			}
 		}
 		if (trackActiveFilterAndUnreadAndReorder) {

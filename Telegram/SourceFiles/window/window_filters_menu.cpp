@@ -217,7 +217,15 @@ void FiltersMenu::setupDragAndDrop() {
 			const auto localPos = _list->mapFromGlobal(globalPos);
 			for (const auto &[id, button] : _filters) {
 				if (button->geometry().contains(localPos)) {
-					return id;
+					const auto &list
+						= _session->session().data().chatsFilters().list();
+					const auto i = ranges::find(
+						list,
+						id,
+						&Data::ChatFilter::id);
+					return (i != end(list) && i->localAdmins())
+						? std::nullopt
+						: std::optional<FilterId>(id);
 				}
 			}
 			return std::nullopt;
@@ -367,6 +375,9 @@ void FiltersMenu::refresh() {
 	_reorder->addPinnedInterval(
 		premiumFrom,
 		std::max(1, int(filters->list().size()) - maxLimit));
+	if (!filters->list().empty() && filters->list().back().localAdmins()) {
+		_reorder->addPinnedInterval(int(filters->list().size()) - 1, 1);
+	}
 
 	// Remember which folder holds keyboard focus so the roving Tab-stop can be
 	// re-established on its replacement after the rebuild: the new buttons are
@@ -756,7 +767,10 @@ void FiltersMenu::showMenu(QPoint position, FilterId id) {
 		i->second.get(),
 		st::popupMenuWithIcons);
 	const auto addAction = Ui::Menu::CreateAddActionCallback(_popupMenu);
-	if (id) {
+	const auto &list = _session->session().data().chatsFilters().list();
+	const auto entry = ranges::find(list, id, &Data::ChatFilter::id);
+	const auto local = (entry != end(list)) && entry->localAdmins();
+	if (id && !local) {
 		addAction(
 			tr::lng_filters_context_edit(tr::now),
 			crl::guard(&_outer, [=] { EditExistingFilter(_session, id); }),
@@ -779,6 +793,15 @@ void FiltersMenu::showMenu(QPoint position, FilterId id) {
 			.icon = &st::menuIconDeleteAttention,
 			.isAttention = true,
 		});
+	} else if (local) {
+		auto filteredChats = [=] {
+			return _session->session().data().chatsFilters().chatsList(id);
+		};
+		MarkAsReadMenu::AddChatListAction(
+			_session,
+			MarkAsReadMenu::ChatListKind::Folder,
+			std::move(filteredChats),
+			addAction);
 	} else {
 		MarkAsReadMenu::AddChatListAction(
 			_session,

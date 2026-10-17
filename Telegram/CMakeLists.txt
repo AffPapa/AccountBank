@@ -242,6 +242,8 @@ PRIVATE
     boxes/filters/edit_filter_chats_preview.h
     boxes/filters/edit_filter_links.cpp
     boxes/filters/edit_filter_links.h
+    boxes/peers/accountbank_chat_rights_box.cpp
+    boxes/peers/accountbank_chat_rights_box.h
     boxes/peers/add_bot_to_chat_box.cpp
     boxes/peers/add_bot_to_chat_box.h
     boxes/peers/add_participants_box.cpp
@@ -546,6 +548,8 @@ PRIVATE
     chat_helpers/tabbed_section.h
     chat_helpers/tabbed_selector.cpp
     chat_helpers/tabbed_selector.h
+    chat_helpers/text_replacements.cpp
+    chat_helpers/text_replacements.h
     chat_helpers/ttl_media_layer_widget.cpp
     chat_helpers/ttl_media_layer_widget.h
     core/application.cpp
