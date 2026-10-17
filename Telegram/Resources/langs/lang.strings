@@ -9222,8 +9222,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_accountbank_export_archive" = "Экспорт архива сообщений";
 "lng_accountbank_archive_exported" = "Архив экспортирован: {path}";
 "lng_accountbank_archive_failed" = "Не удалось экспортировать архив.";
-"lng_accountbank_cloud_archive" = "Открыть облачный архив";
-"lng_accountbank_cloud_creating" = "Создаётся приватный канал архива. Откройте меню чуть позже.";
+"lng_accountbank_cloud_archive" = "Открыть архив по диалогам";
+"lng_accountbank_cloud_legacy" = "Открыть прежний канал архива";
+"lng_accountbank_cloud_creating" = "Создаётся приватная группа с темами. Откройте меню чуть позже.";
 "lng_accountbank_cloud_failed" = "Облачный архив недоступен. Локальный архив продолжает работать.";
 
 // Keys finished

@@ -15,6 +15,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_peer.h"
 #include "data/data_photo.h"
 #include "data/data_session.h"
+#include "data/data_types.h"
 #include "data/data_user.h"
 #include "history/history.h"
 #include "history/history_item.h"
@@ -34,11 +35,34 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <QSaveFile>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <limits>
 
 namespace Data {
 namespace {
 
 constexpr auto kFlushDelay = crl::time(2000);
+
+crl::time CloudRetryDelay(const MTP::Error &error) {
+	const auto type = error.type();
+	for (const auto &prefix : { u"FLOOD_WAIT_"_q, u"SLOWMODE_WAIT_"_q }) {
+		if (type.startsWith(prefix)) {
+			bool ok = false;
+			const auto seconds = type.mid(prefix.size()).toLongLong(&ok);
+			if (ok && seconds > 0) {
+				return crl::time(std::min<crl::time>(
+					seconds,
+					(std::numeric_limits<crl::time>::max()
+						- QDateTime::currentMSecsSinceEpoch() - 1000) / 1000)
+					* 1000);
+			}
+		}
+	}
+	return crl::time(5 * 60 * 1000);
+}
+
+crl::time CloudTimerDelay(crl::time delay) {
+	return std::min<crl::time>(delay, std::numeric_limits<int>::max());
+}
 
 QByteArray HmacSha256(const QByteArray &key, const QByteArray &message) {
 	auto out = QByteArray(32, Qt::Uninitialized);
@@ -232,9 +256,10 @@ void MessageArchive::logMessage(not_null<HistoryItem*> item) {
 	if (!item->isRegular() || item->isSponsored()) {
 		return;
 	}
-	if (_cloudChannelId
-		&& item->history()->peer->id
-			== peerFromChannel(ChannelId(_cloudChannelId))) {
+	if ((_cloudForumId && item->history()->peer->id
+			== peerFromChannel(ChannelId(_cloudForumId)))
+		|| (_legacyChannelId && item->history()->peer->id
+			== peerFromChannel(ChannelId(_legacyChannelId)))) {
 		return;
 	}
 	auto object = SerializeItem(item);
@@ -256,6 +281,12 @@ void MessageArchive::logEditTransition(
 	if (existing && (!existing->isRegular() || existing->isSponsored())) {
 		return;
 	}
+	if ((_cloudForumId && peer == QString::number(
+			peerFromChannel(ChannelId(_cloudForumId)).value))
+		|| (_legacyChannelId && peer == QString::number(
+			peerFromChannel(ChannelId(_legacyChannelId)).value))) {
+		return;
+	}
 	if (!flush()) {
 		LOG(("Archive: pending snapshots could not be saved before edit."));
 		return;
@@ -274,8 +305,10 @@ void MessageArchive::logEditTransition(
 	object.insert(u"after_photo"_q, afterPhoto);
 	object.insert(u"after_document"_q, afterDocument);
 	const auto mirror = existing && existing->allowsMediaDownloadControls()
-		&& (!_cloudChannelId || peer
-			!= QString::number(peerFromChannel(ChannelId(_cloudChannelId)).value));
+		&& (!_cloudForumId || peer
+			!= QString::number(peerFromChannel(ChannelId(_cloudForumId)).value))
+		&& (!_legacyChannelId || peer
+			!= QString::number(peerFromChannel(ChannelId(_legacyChannelId)).value));
 	enqueue(u"edit"_q, peer, msg, object, mirror);
 	if (!flush()) {
 		LOG(("Archive: edit transition could not be saved."));
@@ -292,6 +325,12 @@ void MessageArchive::logDeletedBatch(
 		if (!item->isRegular()) {
 			continue;
 		}
+		if ((_cloudForumId && item->history()->peer->id
+				== peerFromChannel(ChannelId(_cloudForumId)))
+			|| (_legacyChannelId && item->history()->peer->id
+				== peerFromChannel(ChannelId(_legacyChannelId)))) {
+			continue;
+		}
 		auto object = SerializeItem(item);
 		enqueue(
 			u"delete"_q,
@@ -299,8 +338,10 @@ void MessageArchive::logDeletedBatch(
 			object.value(u"msg"_q).toString(),
 			object,
 			item->allowsMediaDownloadControls()
-				&& (!_cloudChannelId || item->history()->peer->id
-					!= peerFromChannel(ChannelId(_cloudChannelId))));
+				&& (!_cloudForumId || item->history()->peer->id
+					!= peerFromChannel(ChannelId(_cloudForumId)))
+				&& (!_legacyChannelId || item->history()->peer->id
+					!= peerFromChannel(ChannelId(_legacyChannelId))));
 	}
 	if (!flush()) {
 		LOG(("Archive: deletion snapshot could not be saved."));
@@ -616,10 +657,15 @@ bool MessageArchive::ensureOpened() {
 	if (sqlite3_exec(
 			_db,
 			"CREATE TABLE IF NOT EXISTS cloud_mirror("
-			"key BLOB PRIMARY KEY, sent INTEGER NOT NULL DEFAULT 0"
+			"key BLOB PRIMARY KEY, sent INTEGER NOT NULL DEFAULT 0, "
+			"destination INTEGER NOT NULL DEFAULT 1, "
+			"retry_after INTEGER NOT NULL DEFAULT 0"
 			") WITHOUT ROWID;"
 			"CREATE TABLE IF NOT EXISTS cloud_config("
 			"key TEXT PRIMARY KEY, nonce BLOB, tag BLOB, data BLOB"
+			") WITHOUT ROWID;"
+			"CREATE TABLE IF NOT EXISTS cloud_topics("
+			"key BLOB PRIMARY KEY, nonce BLOB, tag BLOB, data BLOB"
 			") WITHOUT ROWID;",
 			nullptr,
 			nullptr,
@@ -627,7 +673,41 @@ bool MessageArchive::ensureOpened() {
 		_mirrorDisabled = true;
 		LOG(("Archive: cloud mirror tables unavailable."));
 	} else {
-		loadCloudChannel();
+		// v31 rows have no destination column. They belong to the old channel
+		// if it exists; otherwise they can be delivered to the new forum.
+		auto *probe = static_cast<sqlite3_stmt*>(nullptr);
+		const auto hasDestination = sqlite3_prepare_v2(
+			_db, "SELECT destination FROM cloud_mirror LIMIT 1",
+			-1, &probe, nullptr) == SQLITE_OK;
+		if (probe) sqlite3_finalize(probe);
+		if (!hasDestination && sqlite3_exec(
+				_db,
+				"ALTER TABLE cloud_mirror ADD COLUMN destination "
+				"INTEGER NOT NULL DEFAULT 0",
+				nullptr, nullptr, nullptr) != SQLITE_OK) {
+			_mirrorDisabled = true;
+			LOG(("Archive: cloud queue migration failed."));
+		}
+		auto *retryProbe = static_cast<sqlite3_stmt*>(nullptr);
+		const auto hasRetry = sqlite3_prepare_v2(
+			_db, "SELECT retry_after FROM cloud_mirror LIMIT 1",
+			-1, &retryProbe, nullptr) == SQLITE_OK;
+		if (retryProbe) sqlite3_finalize(retryProbe);
+		if (!hasRetry && sqlite3_exec(
+				_db,
+				"ALTER TABLE cloud_mirror ADD COLUMN retry_after "
+				"INTEGER NOT NULL DEFAULT 0",
+				nullptr, nullptr, nullptr) != SQLITE_OK) {
+			_mirrorDisabled = true;
+			LOG(("Archive: cloud retry migration failed."));
+		}
+		loadCloudDestinations();
+		if (!_legacyChannelId && !_mirrorDisabled) {
+			sqlite3_exec(
+				_db,
+				"UPDATE cloud_mirror SET destination=1 WHERE destination=0",
+				nullptr, nullptr, nullptr);
+		}
 		_mirrorTimer.callOnce(crl::time(1000));
 	}
 	auto *stmt = static_cast<sqlite3_stmt*>(nullptr);
@@ -695,7 +775,8 @@ QJsonObject MessageArchive::currentSnapshot(
 	sqlite3_bind_blob(
 		stmt, 1, stateKey.constData(), stateKey.size(), SQLITE_TRANSIENT);
 	auto object = QJsonObject();
-	if (sqlite3_step(stmt) == SQLITE_ROW) {
+	const auto step = sqlite3_step(stmt);
+	if (step == SQLITE_ROW) {
 		const auto field = [&](int column) {
 			return QByteArray(
 				static_cast<const char*>(sqlite3_column_blob(stmt, column)),
@@ -784,7 +865,7 @@ bool MessageArchive::flush() {
 	auto *mirrorStmt = static_cast<sqlite3_stmt*>(nullptr);
 	if (!_mirrorDisabled && sqlite3_prepare_v2(
 			_db,
-			"INSERT OR IGNORE INTO cloud_mirror(key) VALUES(?)",
+			"INSERT OR IGNORE INTO cloud_mirror(key,destination) VALUES(?,1)",
 			-1,
 			&mirrorStmt,
 			nullptr) != SQLITE_OK) {
@@ -1031,45 +1112,58 @@ void MessageArchive::exportAsync(
 	});
 }
 
-void MessageArchive::loadCloudChannel() {
-	auto *stmt = static_cast<sqlite3_stmt*>(nullptr);
-	if (sqlite3_prepare_v2(
-			_db,
-			"SELECT nonce,tag,data FROM cloud_config WHERE key='channel'",
-			-1,
-			&stmt,
-			nullptr) != SQLITE_OK) {
-		_mirrorDisabled = true;
-		return;
-	}
-	const auto result = sqlite3_step(stmt);
-	if (result == SQLITE_ROW) {
-		const auto field = [&](int column) {
-			return QByteArray(
-				static_cast<const char*>(sqlite3_column_blob(stmt, column)),
-				sqlite3_column_bytes(stmt, column));
-		};
-		const auto plain = DecryptRecord(
-			_aesKey, field(0), field(1), field(2));
-		const auto object = QJsonDocument::fromJson(plain).object();
-		bool idOk = false;
-		bool hashOk = false;
-		const auto id = object.value(u"id"_q).toString().toULongLong(&idOk);
-		const auto hash = object.value(u"hash"_q).toString().toULongLong(&hashOk);
-		if (idOk && hashOk && id && hash) {
-			_cloudChannelId = id;
-			_cloudAccessHash = hash;
-		} else {
+void MessageArchive::loadCloudDestinations() {
+	for (const auto name : { "channel", "forum", "pause" }) {
+		auto *stmt = static_cast<sqlite3_stmt*>(nullptr);
+		if (sqlite3_prepare_v2(
+				_db,
+				"SELECT nonce,tag,data FROM cloud_config WHERE key=?",
+				-1,
+				&stmt,
+				nullptr) != SQLITE_OK) {
 			_mirrorDisabled = true;
-			LOG(("Archive: cloud destination could not be read."));
+			return;
 		}
-	} else if (result != SQLITE_DONE) {
-		_mirrorDisabled = true;
+		sqlite3_bind_text(stmt, 1, name, -1, SQLITE_STATIC);
+		const auto result = sqlite3_step(stmt);
+		if (result == SQLITE_ROW) {
+			const auto field = [&](int column) {
+				return QByteArray(
+					static_cast<const char*>(sqlite3_column_blob(stmt, column)),
+					sqlite3_column_bytes(stmt, column));
+			};
+			const auto plain = DecryptRecord(
+				_aesKey, field(0), field(1), field(2));
+			const auto object = QJsonDocument::fromJson(plain).object();
+			bool idOk = false;
+			bool hashOk = false;
+			const auto id = object.value(u"id"_q).toString().toULongLong(&idOk);
+			const auto hash = object.value(u"hash"_q).toString().toULongLong(&hashOk);
+			if (idOk && hashOk && id && hash) {
+				if (QString::fromLatin1(name) == u"pause"_q) {
+					_mirrorPausedUntil = qint64(id);
+				} else if (QString::fromLatin1(name) == u"forum"_q) {
+					_cloudForumId = id;
+					_cloudForumAccessHash = hash;
+				} else {
+					_legacyChannelId = id;
+					_legacyAccessHash = hash;
+				}
+			} else {
+				_mirrorDisabled = true;
+				LOG(("Archive: cloud destination could not be read."));
+			}
+		} else if (result != SQLITE_DONE) {
+			_mirrorDisabled = true;
+		}
+		sqlite3_finalize(stmt);
 	}
-	sqlite3_finalize(stmt);
 }
 
-bool MessageArchive::saveCloudChannel(uint64 id, uint64 accessHash) {
+bool MessageArchive::saveCloudDestination(
+		const char *name,
+		uint64 id,
+		uint64 accessHash) {
 	auto object = QJsonObject();
 	object.insert(u"id"_q, QString::number(id));
 	object.insert(u"hash"_q, QString::number(accessHash));
@@ -1082,24 +1176,116 @@ bool MessageArchive::saveCloudChannel(uint64 id, uint64 accessHash) {
 	if (sqlite3_prepare_v2(
 			_db,
 			"INSERT OR REPLACE INTO cloud_config(key,nonce,tag,data) "
-			"VALUES('channel',?,?,?)",
+			"VALUES(?,?,?,?)",
 			-1,
 			&stmt,
 			nullptr) != SQLITE_OK) {
 		return false;
 	}
+	sqlite3_bind_text(stmt, 1, name, -1, SQLITE_STATIC);
 	sqlite3_bind_blob(
-		stmt, 1, encrypted->nonce.constData(), encrypted->nonce.size(), SQLITE_TRANSIENT);
+		stmt, 2, encrypted->nonce.constData(), encrypted->nonce.size(), SQLITE_TRANSIENT);
 	sqlite3_bind_blob(
-		stmt, 2, encrypted->tag.constData(), encrypted->tag.size(), SQLITE_TRANSIENT);
+		stmt, 3, encrypted->tag.constData(), encrypted->tag.size(), SQLITE_TRANSIENT);
 	sqlite3_bind_blob(
-		stmt, 3, encrypted->data.constData(), encrypted->data.size(), SQLITE_TRANSIENT);
+		stmt, 4, encrypted->data.constData(), encrypted->data.size(), SQLITE_TRANSIENT);
 	const auto saved = (sqlite3_step(stmt) == SQLITE_DONE);
 	sqlite3_finalize(stmt);
-	if (saved) {
-		_cloudChannelId = id;
-		_cloudAccessHash = accessHash;
+	if (saved && QString::fromLatin1(name) == u"forum"_q) {
+		_cloudForumId = id;
+		_cloudForumAccessHash = accessHash;
 	}
+	return saved;
+}
+
+MessageArchive::TopicState MessageArchive::loadCloudTopic(
+		const QString &peer) {
+	const auto key = HmacSha256(
+		_macKey, (u"cloud topic:"_q + peer).toUtf8()).left(16);
+	if (key.size() != 16) {
+		return {};
+	}
+	auto *stmt = static_cast<sqlite3_stmt*>(nullptr);
+	if (sqlite3_prepare_v2(_db,
+			"SELECT nonce,tag,data FROM cloud_topics WHERE key=?",
+			-1, &stmt, nullptr) != SQLITE_OK) {
+		_mirrorDisabled = true;
+		return {};
+	}
+	sqlite3_bind_blob(stmt, 1, key.constData(), key.size(), SQLITE_TRANSIENT);
+	auto result = TopicState();
+	const auto step = sqlite3_step(stmt);
+	if (step == SQLITE_ROW) {
+		const auto field = [&](int column) {
+			return QByteArray(
+				static_cast<const char*>(sqlite3_column_blob(stmt, column)),
+				sqlite3_column_bytes(stmt, column));
+		};
+		const auto object = QJsonDocument::fromJson(DecryptRecord(
+			_aesKey, field(0), field(1), field(2))).object();
+		bool randomOk = false;
+		result.id = object.value(u"id"_q).toInt();
+		result.title = object.value(u"title"_q).toString();
+		result.randomId = object.value(u"random"_q)
+			.toString().toULongLong(&randomOk);
+		if (result.title.isEmpty() || !randomOk || !result.randomId) {
+			_mirrorDisabled = true;
+			LOG(("Archive: cloud topic mapping could not be read."));
+			result = {};
+		}
+	} else if (step != SQLITE_DONE) {
+		_mirrorDisabled = true;
+	}
+	sqlite3_finalize(stmt);
+	return result;
+}
+
+bool MessageArchive::saveCloudTopic(
+		const QString &peer,
+		const TopicState &topic) {
+	const auto key = HmacSha256(
+		_macKey, (u"cloud topic:"_q + peer).toUtf8()).left(16);
+	auto object = QJsonObject();
+	object.insert(u"id"_q, topic.id);
+	object.insert(u"title"_q, topic.title);
+	object.insert(u"random"_q, QString::number(topic.randomId));
+	const auto encrypted = EncryptRecord(
+		_aesKey, QJsonDocument(object).toJson(QJsonDocument::Compact));
+	if (key.size() != 16 || !encrypted) {
+		return false;
+	}
+	auto *stmt = static_cast<sqlite3_stmt*>(nullptr);
+	if (sqlite3_prepare_v2(_db,
+			"INSERT OR REPLACE INTO cloud_topics(key,nonce,tag,data) "
+			"VALUES(?,?,?,?)",
+			-1, &stmt, nullptr) != SQLITE_OK) {
+		return false;
+	}
+	sqlite3_bind_blob(stmt, 1, key.constData(), key.size(), SQLITE_TRANSIENT);
+	sqlite3_bind_blob(stmt, 2,
+		encrypted->nonce.constData(), encrypted->nonce.size(), SQLITE_TRANSIENT);
+	sqlite3_bind_blob(stmt, 3,
+		encrypted->tag.constData(), encrypted->tag.size(), SQLITE_TRANSIENT);
+	sqlite3_bind_blob(stmt, 4,
+		encrypted->data.constData(), encrypted->data.size(), SQLITE_TRANSIENT);
+	const auto saved = (sqlite3_step(stmt) == SQLITE_DONE);
+	sqlite3_finalize(stmt);
+	return saved;
+}
+
+bool MessageArchive::clearCloudTopic(const QString &peer) {
+	const auto key = HmacSha256(
+		_macKey, (u"cloud topic:"_q + peer).toUtf8()).left(16);
+	if (key.size() != 16) return false;
+	auto *stmt = static_cast<sqlite3_stmt*>(nullptr);
+	if (sqlite3_prepare_v2(_db,
+			"DELETE FROM cloud_topics WHERE key=?",
+			-1, &stmt, nullptr) != SQLITE_OK) {
+		return false;
+	}
+	sqlite3_bind_blob(stmt, 1, key.constData(), key.size(), SQLITE_TRANSIENT);
+	const auto saved = (sqlite3_step(stmt) == SQLITE_DONE);
+	sqlite3_finalize(stmt);
 	return saved;
 }
 
@@ -1107,46 +1293,110 @@ void MessageArchive::processCloudMirror() {
 	if (_mirrorDisabled || _mirrorRequestActive || !_db || _broken) {
 		return;
 	}
+	const auto now = QDateTime::currentMSecsSinceEpoch();
+	if (_mirrorPausedUntil > now) {
+		_mirrorTimer.callOnce(CloudTimerDelay(_mirrorPausedUntil - now));
+		return;
+	}
 	auto *stmt = static_cast<sqlite3_stmt*>(nullptr);
 	if (sqlite3_prepare_v2(
 			_db,
-			"SELECT 1 FROM cloud_mirror WHERE sent=0 LIMIT 1",
+			"SELECT m.destination FROM cloud_mirror m "
+			"JOIN records r ON r.key=m.key "
+			"WHERE m.sent=0 AND m.retry_after<=? "
+			"ORDER BY m.destination,r.ts LIMIT 1",
 			-1,
 			&stmt,
 			nullptr) != SQLITE_OK) {
 		_mirrorDisabled = true;
 		return;
 	}
+	sqlite3_bind_int64(stmt, 1, now);
 	const auto pending = (sqlite3_step(stmt) == SQLITE_ROW);
+	const auto destination = pending ? sqlite3_column_int(stmt, 0) : 1;
 	sqlite3_finalize(stmt);
 	if (!pending) {
+		stmt = nullptr;
+		if (sqlite3_prepare_v2(_db,
+				"SELECT 1 FROM cloud_mirror WHERE sent=0 LIMIT 1",
+				-1, &stmt, nullptr) == SQLITE_OK) {
+			if (sqlite3_step(stmt) == SQLITE_ROW) {
+				_mirrorTimer.callOnce(crl::time(5 * 60 * 1000));
+			}
+			sqlite3_finalize(stmt);
+		}
 		return;
 	}
-	if (_cloudChannelId && _cloudAccessHash) {
+	if (destination == 0 && _legacyChannelId && _legacyAccessHash) {
+		sendCloudSnapshot();
+	} else if (_cloudForumId && _cloudForumAccessHash) {
 		sendCloudSnapshot();
 	} else {
-		createCloudChannel();
+		createCloudForum();
 	}
 }
 
-bool MessageArchive::ensureCloudChannel() {
+bool MessageArchive::ensureCloudForum() {
 	if (_broken || !ensureOpened() || _mirrorDisabled) {
 		return false;
 	}
-	if (!_cloudChannelId && !_mirrorRequestActive) {
-		createCloudChannel();
+	if (_mirrorPausedUntil > QDateTime::currentMSecsSinceEpoch()) {
+		_mirrorTimer.callOnce(CloudTimerDelay(
+			_mirrorPausedUntil - QDateTime::currentMSecsSinceEpoch()));
+		return true;
+	}
+	if (!_cloudForumId && !_mirrorRequestActive) {
+		createCloudForum();
 	}
 	return true;
 }
 
-void MessageArchive::createCloudChannel() {
+uint64 MessageArchive::legacyCloudChannelId() {
+	return ensureOpened() ? _legacyChannelId : 0;
+}
+
+uint64 MessageArchive::legacyCloudAccessHash() {
+	return ensureOpened() ? _legacyAccessHash : 0;
+}
+
+void MessageArchive::createCloudForum() {
+	if (_mirrorPausedUntil > QDateTime::currentMSecsSinceEpoch()) {
+		_mirrorTimer.callOnce(CloudTimerDelay(
+			_mirrorPausedUntil - QDateTime::currentMSecsSinceEpoch()));
+		return;
+	}
+	const auto intent = loadCloudTopic(u"__forum_intent__"_q);
+	if (_mirrorDisabled) {
+		return;
+	}
+	if (!intent.title.isEmpty()) {
+		recoverCloudForum(intent.title);
+		return;
+	}
+	const auto marker = HmacSha256(_macKey, "forum installation").left(6).toHex();
+	const auto title = u"Архив AccountBank · #"_q
+		+ QString::fromLatin1(marker);
+	const auto random = HmacSha256(_macKey, "forum creation intent");
+	if (random.size() != 32) {
+		_mirrorDisabled = true;
+		return;
+	}
+	auto randomId = uint64(0);
+	for (auto i = 0; i != 8; ++i) {
+		randomId |= uint64(uint8(random[i])) << (i * 8);
+	}
+	if (!saveCloudTopic(u"__forum_intent__"_q,
+			{ 0, title, randomId ? randomId : 1 })) {
+		_mirrorDisabled = true;
+		return;
+	}
 	_mirrorRequestActive = true;
 	const auto alive = std::weak_ptr<bool>(_alive);
 	using Flag = MTPchannels_CreateChannel::Flag;
 	_owner->session().api().request(MTPchannels_CreateChannel(
-		MTP_flags(Flag::f_broadcast),
-		MTP_string(u"AccountBank Archive"_q),
-		MTP_string(u"Private copies of messages before edits and deletions"_q),
+		MTP_flags(Flag::f_megagroup | Flag::f_forum),
+		MTP_string(title),
+		MTP_string(u"Личный архив изменений и удалений сообщений"_q),
 		MTPInputGeoPoint(),
 		MTPstring(),
 		MTP_int(0)
@@ -1156,10 +1406,16 @@ void MessageArchive::createCloudChannel() {
 		}
 		_mirrorRequestActive = false;
 		auto id = uint64(0);
+		auto hash = uint64(0);
 		const auto inspect = [&](const QVector<MTPChat> &chats) {
 			for (const auto &chat : chats) {
 				if (chat.type() == mtpc_channel) {
-					id = chat.c_channel().vid().v;
+					const auto &channel = chat.c_channel();
+					if (!channel.is_forum() || !channel.is_megagroup()) {
+						continue;
+					}
+					id = channel.vid().v;
+					hash = channel.vaccess_hash().value_or_empty();
 					break;
 				}
 			}
@@ -1170,28 +1426,322 @@ void MessageArchive::createCloudChannel() {
 				inspect(data.vchats().v);
 			},
 			[&](const auto &) {});
+		if (!id || !hash) {
+			LOG(("Archive: created forum was absent from updates."));
+			_mirrorTimer.callOnce(crl::time(5 * 60 * 1000));
+			return;
+		}
+		if (!saveCloudDestination("forum", id, hash)) {
+			_mirrorDisabled = true;
+			LOG(("Archive: created forum could not be saved."));
+			return;
+		}
 		_owner->session().api().applyUpdates(result);
-		if (!id) {
-			_mirrorDisabled = true;
-			LOG(("Archive: created channel was absent from updates."));
-			return;
-		}
-		const auto channel = _owner->session().data().channel(ChannelId(id));
-		if (!channel->accessHash()
-			|| !saveCloudChannel(id, channel->accessHash())) {
-			_mirrorDisabled = true;
-			LOG(("Archive: created channel could not be saved."));
-			return;
-		}
 		_mirrorTimer.callOnce(crl::time(0));
 	}).fail([=](const MTP::Error &error) {
 		if (alive.expired()) {
 			return;
 		}
 		_mirrorRequestActive = false;
-		_mirrorDisabled = true;
-		LOG(("Archive: channel creation failed: %1.").arg(error.type()));
+		LOG(("Archive: forum creation failed: %1.").arg(error.type()));
+		const auto delay = CloudRetryDelay(error);
+		pauseCloudMirror(error.type(), delay);
+		if (error.code() == 400 || error.code() == 403) {
+			// createChannel has no random_id. Keep the intent and never
+			// automatically create another forum after a definite rejection.
+			auto failed = loadCloudTopic(u"__forum_intent__"_q);
+			failed.id = -2;
+			if (!saveCloudTopic(u"__forum_intent__"_q, failed)) {
+				_mirrorDisabled = true;
+				return;
+			}
+		}
+		_mirrorTimer.callOnce(CloudTimerDelay(delay));
 	}).send();
+}
+
+void MessageArchive::recoverCloudForum(
+		const QString &title,
+		int offsetDate,
+		int offsetId,
+		PeerId offsetPeer,
+		int page,
+		int folder) {
+	// createChannel has no random_id. After an uncertain result, search for
+	// the exact installation marker instead of risking a duplicate forum.
+	_mirrorRequestActive = true;
+	const auto alive = std::weak_ptr<bool>(_alive);
+	_owner->session().api().request(MTPmessages_GetDialogs(
+		MTP_flags(folder ? MTPmessages_GetDialogs::Flag::f_folder_id
+			: MTPmessages_GetDialogs::Flags(0)),
+		MTP_int(folder),
+		MTP_int(offsetDate),
+		MTP_int(offsetId),
+		(offsetPeer
+			? _owner->session().data().peer(offsetPeer)->input()
+			: MTP_inputPeerEmpty()),
+		MTP_int(100),
+		MTP_long(0)
+	)).done([=](const MTPmessages_Dialogs &result) {
+		if (alive.expired()) return;
+		_mirrorRequestActive = false;
+		auto id = uint64(0);
+		auto hash = uint64(0);
+		auto nextDate = 0;
+		auto nextId = 0;
+		auto nextPeer = PeerId();
+		auto hasMore = false;
+		const auto inspect = [&](const auto &data, bool sliced) {
+			_owner->session().data().processUsers(data.vusers());
+			_owner->session().data().processChats(data.vchats());
+			for (const auto &chat : data.vchats().v) {
+				if (chat.type() != mtpc_channel) continue;
+				const auto &channel = chat.c_channel();
+				if (channel.is_forum()
+					&& channel.is_megagroup()
+					&& qs(channel.vtitle()) == title) {
+					id = channel.vid().v;
+					hash = channel.vaccess_hash().value_or_empty();
+					break;
+				}
+			}
+			hasMore = sliced && !data.vdialogs().v.empty();
+			if (!sliced || id) return;
+			for (auto i = data.vdialogs().v.size(); i > 0; --i) {
+				const auto &dialog = data.vdialogs().v[i - 1];
+				if (dialog.type() != mtpc_dialog) continue;
+				const auto &fields = dialog.c_dialog();
+				const auto peer = peerFromMTP(fields.vpeer());
+				const auto msg = fields.vtop_message().v;
+				if (!peer || !msg) continue;
+				for (const auto &message : data.vmessages().v) {
+					if (IdFromMessage(message) == msg
+						&& PeerFromMessage(message) == peer) {
+						nextDate = DateFromMessage(message);
+						nextId = msg;
+						nextPeer = peer;
+						break;
+					}
+				}
+				if (nextDate) break;
+			}
+		};
+		result.match(
+			[&](const MTPDmessages_dialogs &data) {
+				inspect(data, false);
+			},
+			[&](const MTPDmessages_dialogsSlice &data) {
+				inspect(data, true);
+			},
+			[&](const auto &) {});
+		if (id && hash) {
+			if (!saveCloudDestination("forum", id, hash)) {
+				_mirrorDisabled = true;
+				return;
+			}
+			_mirrorTimer.callOnce(crl::time(0));
+		} else if (hasMore && nextDate && page < 100) {
+			recoverCloudForum(title, nextDate, nextId, nextPeer, page + 1, folder);
+		} else if (!hasMore && !folder) {
+			recoverCloudForum(title, 0, 0, PeerId(), 0, 1);
+		} else if (!hasMore) {
+			// A createChannel response can be lost after server success. Require
+			// two complete scans, separated by a retry interval, before another
+			// create attempt. The marker is retained across process restarts.
+			auto intent = loadCloudTopic(u"__forum_intent__"_q);
+			if (_mirrorDisabled) return;
+			if (intent.id == -2) {
+				_mirrorDisabled = true;
+				LOG(("Archive: forum creation was rejected by Telegram; "
+					"cloud mirror stopped for this session."));
+				return;
+			}
+			const auto saved = (intent.id == -1)
+				? clearCloudTopic(u"__forum_intent__"_q)
+				: (intent.id = -1,
+					saveCloudTopic(u"__forum_intent__"_q, intent));
+			if (!saved) {
+				_mirrorDisabled = true;
+				return;
+			}
+			_mirrorTimer.callOnce(crl::time(5 * 60 * 1000));
+		} else {
+			LOG(("Archive: forum creation outcome still unknown; "
+				"will not create a duplicate."));
+			_mirrorTimer.callOnce(crl::time(5 * 60 * 1000));
+		}
+	}).fail([=](const MTP::Error &error) {
+		if (alive.expired()) return;
+		_mirrorRequestActive = false;
+		LOG(("Archive: forum recovery failed: %1.").arg(error.type()));
+		const auto delay = CloudRetryDelay(error);
+		pauseCloudMirror(error.type(), delay);
+		_mirrorTimer.callOnce(CloudTimerDelay(delay));
+	}).send();
+}
+
+void MessageArchive::recoverCloudTopic(
+		const QString &peer,
+		const QString &title,
+		uint64 randomId,
+		const QByteArray &recordKey,
+		int offsetDate,
+		int offsetId,
+		int offsetTopic,
+		int page) {
+	_mirrorRequestActive = true;
+	const auto alive = std::weak_ptr<bool>(_alive);
+	_owner->session().api().request(MTPmessages_GetForumTopics(
+		MTP_flags(MTPmessages_GetForumTopics::Flag::f_q),
+		MTP_inputPeerChannel(
+			MTP_long(_cloudForumId), MTP_long(_cloudForumAccessHash)),
+		MTP_string(title),
+		MTP_int(offsetDate),
+		MTP_int(offsetId),
+		MTP_int(offsetTopic),
+		MTP_int(100)
+	)).done([=](const MTPmessages_ForumTopics &result) {
+		if (alive.expired()) return;
+		_mirrorRequestActive = false;
+		auto id = 0;
+		auto nextDate = 0;
+		auto nextId = 0;
+		auto nextTopic = 0;
+		for (const auto &topic : result.data().vtopics().v) {
+			if (topic.type() == mtpc_forumTopic) {
+				const auto &data = topic.c_forumTopic();
+				if (qs(data.vtitle()) == title) {
+					id = data.vid().v;
+					break;
+				}
+				nextDate = data.vdate().v;
+				nextId = data.vtop_message().v;
+				nextTopic = data.vid().v;
+			}
+		}
+		if (id > 1) {
+			if (!saveCloudTopic(peer, { id, title, randomId })) {
+				_mirrorDisabled = true;
+				return;
+			}
+			_mirrorTimer.callOnce(crl::time(0));
+		} else if (result.data().vtopics().v.size() == 100
+			&& nextDate && nextId && nextTopic && page < 100) {
+			recoverCloudTopic(peer, title, randomId, recordKey,
+				nextDate, nextId, nextTopic, page + 1);
+		} else if (result.data().vtopics().v.size() == 100) {
+			// Search was incomplete: creating here could duplicate a topic.
+			deferCloudEvent(recordKey, crl::time(5 * 60 * 1000));
+		} else {
+			createCloudTopic(peer, title, randomId, recordKey);
+		}
+	}).fail([=](const MTP::Error &error) {
+		if (alive.expired()) return;
+		_mirrorRequestActive = false;
+		LOG(("Archive: topic recovery failed: %1.").arg(error.type()));
+		const auto delay = CloudRetryDelay(error);
+		pauseCloudMirror(error.type(), delay);
+		deferCloudEvent(recordKey, delay);
+	}).send();
+}
+
+void MessageArchive::createCloudTopic(
+		const QString &peer,
+		const QString &title,
+		uint64 randomId,
+		const QByteArray &recordKey) {
+	_mirrorRequestActive = true;
+	const auto alive = std::weak_ptr<bool>(_alive);
+	using Flag = MTPmessages_CreateForumTopic::Flag;
+	_owner->session().api().request(MTPmessages_CreateForumTopic(
+		MTP_flags(Flag::f_icon_color),
+		MTP_inputPeerChannel(
+			MTP_long(_cloudForumId), MTP_long(_cloudForumAccessHash)),
+		MTP_string(title),
+		MTP_int(0x6FB9F0),
+		MTP_long(0),
+		MTP_long(randomId),
+		MTPInputPeer()
+	)).done([=](const MTPUpdates &result) {
+		if (alive.expired()) return;
+		_mirrorRequestActive = false;
+		auto id = 0;
+		const auto inspect = [&](const QVector<MTPUpdate> &updates) {
+			for (const auto &update : updates) {
+				if (update.type() == mtpc_updateMessageID) {
+					const auto &data = update.c_updateMessageID();
+					if (data.vrandom_id().v == randomId) {
+						id = data.vid().v;
+					}
+				} else if (update.type() == mtpc_updateNewChannelMessage) {
+					const auto &message = update.c_updateNewChannelMessage()
+						.vmessage();
+					if (message.type() == mtpc_messageService
+						&& message.c_messageService().vaction().type()
+							== mtpc_messageActionTopicCreate) {
+						id = message.c_messageService().vid().v;
+					}
+				}
+			}
+		};
+		result.match(
+			[&](const MTPDupdates &data) { inspect(data.vupdates().v); },
+			[&](const MTPDupdatesCombined &data) {
+				inspect(data.vupdates().v);
+			},
+			[&](const auto &) {});
+		_owner->session().api().applyUpdates(result);
+		if (id > 1 && saveCloudTopic(peer, { id, title, randomId })) {
+			_mirrorTimer.callOnce(crl::time(0));
+		} else {
+			LOG(("Archive: created topic ID unavailable."));
+			deferCloudEvent(recordKey, crl::time(5 * 60 * 1000));
+		}
+	}).fail([=](const MTP::Error &error) {
+		if (alive.expired()) return;
+		_mirrorRequestActive = false;
+		LOG(("Archive: topic creation failed: %1.").arg(error.type()));
+		const auto delay = CloudRetryDelay(error);
+		pauseCloudMirror(error.type(), delay);
+		deferCloudEvent(recordKey, delay);
+	}).send();
+}
+
+void MessageArchive::deferCloudEvent(
+		const QByteArray &key,
+		crl::time delay) {
+	auto *stmt = static_cast<sqlite3_stmt*>(nullptr);
+	if (sqlite3_prepare_v2(_db,
+			"UPDATE cloud_mirror SET retry_after=? WHERE key=?",
+			-1, &stmt, nullptr) != SQLITE_OK) {
+		_mirrorDisabled = true;
+		return;
+	}
+	sqlite3_bind_int64(
+		stmt, 1, QDateTime::currentMSecsSinceEpoch() + delay);
+	sqlite3_bind_blob(stmt, 2, key.constData(), key.size(), SQLITE_TRANSIENT);
+	const auto saved = (sqlite3_step(stmt) == SQLITE_DONE);
+	sqlite3_finalize(stmt);
+	if (!saved) {
+		_mirrorDisabled = true;
+	} else {
+		_mirrorTimer.callOnce(crl::time(0));
+	}
+}
+
+void MessageArchive::pauseCloudMirror(
+		const QString &errorType,
+		crl::time delay) {
+	if (errorType.startsWith(u"FLOOD_WAIT_"_q)
+		|| errorType.startsWith(u"SLOWMODE_WAIT_"_q)) {
+		_mirrorPausedUntil = std::max(
+			_mirrorPausedUntil,
+			QDateTime::currentMSecsSinceEpoch() + delay);
+		if (!saveCloudDestination(
+				"pause", uint64(_mirrorPausedUntil), 1)) {
+			_mirrorDisabled = true;
+		}
+	}
 }
 
 void MessageArchive::markCloudSent(const QByteArray &key) {
@@ -1212,7 +1762,7 @@ void MessageArchive::markCloudSent(const QByteArray &key) {
 		_mirrorDisabled = true;
 		LOG(("Archive: cloud delivery could not be recorded."));
 	} else {
-		_mirrorTimer.callOnce(crl::time(0));
+		_mirrorTimer.callOnce(crl::time(1000));
 	}
 }
 
@@ -1220,15 +1770,17 @@ void MessageArchive::sendCloudSnapshot() {
 	auto *stmt = static_cast<sqlite3_stmt*>(nullptr);
 	if (sqlite3_prepare_v2(
 			_db,
-			"SELECT r.key,r.nonce,r.tag,r.data FROM cloud_mirror m "
-			"JOIN records r ON r.key=m.key WHERE m.sent=0 "
-			"ORDER BY r.ts LIMIT 1",
+			"SELECT m.destination,r.key,r.nonce,r.tag,r.data FROM cloud_mirror m "
+			"JOIN records r ON r.key=m.key "
+			"WHERE m.sent=0 AND m.retry_after<=? "
+			"ORDER BY m.destination,r.ts LIMIT 1",
 			-1,
 			&stmt,
 			nullptr) != SQLITE_OK) {
 		_mirrorDisabled = true;
 		return;
 	}
+	sqlite3_bind_int64(stmt, 1, QDateTime::currentMSecsSinceEpoch());
 	if (sqlite3_step(stmt) != SQLITE_ROW) {
 		sqlite3_finalize(stmt);
 		return;
@@ -1238,9 +1790,10 @@ void MessageArchive::sendCloudSnapshot() {
 			static_cast<const char*>(sqlite3_column_blob(stmt, column)),
 			sqlite3_column_bytes(stmt, column));
 	};
-	const auto key = field(0);
+	const auto destination = sqlite3_column_int(stmt, 0);
+	const auto key = field(1);
 	const auto plain = DecryptRecord(
-		_aesKey, field(1), field(2), field(3));
+		_aesKey, field(2), field(3), field(4));
 	sqlite3_finalize(stmt);
 	const auto object = QJsonDocument::fromJson(plain).object();
 	if (plain.isEmpty() || object.isEmpty()) {
@@ -1248,11 +1801,67 @@ void MessageArchive::sendCloudSnapshot() {
 		LOG(("Archive: cloud snapshot could not be decrypted."));
 		return;
 	}
+	const auto legacy = (destination == 0 && _legacyChannelId);
+	auto topicId = 0;
+	if (!legacy) {
+		if (!_cloudForumId || !_cloudForumAccessHash) {
+			createCloudForum();
+			return;
+		}
+		const auto peer = object.value(u"peer"_q).toString();
+		if (peer.isEmpty()) {
+			_mirrorDisabled = true;
+			LOG(("Archive: cloud event has no dialog identifier."));
+			return;
+		}
+		auto topic = loadCloudTopic(peer);
+		if (_mirrorDisabled) return;
+		if (!topic.id) {
+			if (!topic.title.isEmpty()) {
+				recoverCloudTopic(peer, topic.title, topic.randomId, key);
+			} else {
+				const auto marker = HmacSha256(
+					_macKey, (u"topic:"_q + peer).toUtf8()).left(8);
+				const auto suffix = u" · #"_q
+					+ QString::fromLatin1(marker.toHex());
+				auto name = object.value(u"peer_name"_q).toString().trimmed();
+				if (name.isEmpty()) name = u"Диалог "_q + peer;
+				while (!name.isEmpty()
+					&& (name + suffix).toUtf8().size() > 128) {
+					name.chop(1);
+				}
+				topic.title = name + suffix;
+				const auto random = HmacSha256(
+					_macKey,
+					QByteArray("topic random:") + QByteArray::number(
+						_cloudForumId) + peer.toUtf8());
+				if (random.size() != 32) {
+					_mirrorDisabled = true;
+					return;
+				}
+				for (auto i = 0; i != 8; ++i) {
+					topic.randomId |= uint64(uint8(random[i])) << (i * 8);
+				}
+				if (!topic.randomId) topic.randomId = 1;
+				if (!saveCloudTopic(peer, topic)) {
+					_mirrorDisabled = true;
+					return;
+				}
+				createCloudTopic(peer, topic.title, topic.randomId, key);
+			}
+			return;
+		}
+		topicId = topic.id;
+	}
 	const auto label = (object.value(u"kind"_q).toString() == u"edit"_q)
 		? u"До изменения"_q
 		: u"Перед удалением"_q;
 	const auto peerName = object.value(u"peer_name"_q).toString();
 	const auto senderName = object.value(u"from_name"_q).toString();
+	const auto msgValue = object.value(u"msg"_q);
+	const auto messageId = msgValue.isString()
+		? msgValue.toString()
+		: QString::number(qint64(msgValue.toDouble()));
 	auto text = label
 		+ u"\nЧат: "_q + (peerName.isEmpty()
 			? object.value(u"peer"_q).toString()
@@ -1260,8 +1869,7 @@ void MessageArchive::sendCloudSnapshot() {
 		+ u"\nОтправитель: "_q + (senderName.isEmpty()
 			? object.value(u"from"_q).toString()
 			: senderName)
-		+ u"\nСообщение ID: "_q + QString::number(
-			qint64(object.value(u"msg"_q).toDouble()))
+		+ u"\nСообщение ID: "_q + messageId
 		+ u"\nДата: "_q + QDateTime::fromSecsSinceEpoch(
 			qint64(object.value(u"date"_q).toDouble())
 		).toString(Qt::ISODate)
@@ -1292,10 +1900,24 @@ void MessageArchive::sendCloudSnapshot() {
 	const auto alive = std::weak_ptr<bool>(_alive);
 	using Flag = MTPmessages_SendMessage::Flag;
 	_owner->session().api().request(MTPmessages_SendMessage(
-		MTP_flags(Flag::f_no_webpage | Flag::f_silent),
+		MTP_flags(Flag::f_no_webpage | Flag::f_silent
+			| (legacy ? Flag() : Flag::f_reply_to)),
 		MTP_inputPeerChannel(
-			MTP_long(_cloudChannelId), MTP_long(_cloudAccessHash)),
-		MTPInputReplyTo(),
+			MTP_long(legacy ? _legacyChannelId : _cloudForumId),
+			MTP_long(legacy ? _legacyAccessHash : _cloudForumAccessHash)),
+		(legacy
+			? MTPInputReplyTo()
+			: MTP_inputReplyToMessage(
+				MTP_flags(0),
+				MTP_int(topicId),
+				MTP_int(0),
+				MTPInputPeer(),
+				MTPstring(),
+				MTPVector<MTPMessageEntity>(),
+				MTP_int(0),
+				MTPInputPeer(),
+				MTP_int(0),
+				MTP_bytes(QByteArray()))),
 		MTP_string(text),
 		MTP_long(randomId),
 		MTPReplyMarkup(),
@@ -1323,8 +1945,34 @@ void MessageArchive::sendCloudSnapshot() {
 		if (error.type() == u"RANDOM_ID_DUPLICATE"_q) {
 			markCloudSent(key);
 		} else {
+			if (!legacy && error.type() == u"TOPIC_DELETED"_q) {
+				auto topic = loadCloudTopic(
+					object.value(u"peer"_q).toString());
+				if (_mirrorDisabled) return;
+				if (topic.id == topicId) {
+					const auto bytes = HmacSha256(
+						_macKey,
+						QByteArray("topic replacement:")
+							+ QByteArray::number(topic.randomId));
+					if (bytes.size() == 32) {
+						topic.id = 0;
+						topic.randomId = 0;
+						for (auto i = 0; i != 8; ++i) {
+							topic.randomId |= uint64(uint8(bytes[i])) << (i * 8);
+						}
+						if (!topic.randomId) topic.randomId = 1;
+						if (!saveCloudTopic(
+							object.value(u"peer"_q).toString(), topic)) {
+							_mirrorDisabled = true;
+							return;
+						}
+					}
+				}
+			}
 			LOG(("Archive: cloud send failed: %1.").arg(error.type()));
-			_mirrorTimer.callOnce(crl::time(5 * 60 * 1000));
+			const auto delay = CloudRetryDelay(error);
+			pauseCloudMirror(error.type(), delay);
+			deferCloudEvent(key, delay);
 		}
 	}).send();
 }

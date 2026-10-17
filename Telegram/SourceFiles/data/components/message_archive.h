@@ -68,10 +68,12 @@ public:
 	void exportAsync(const QString &path, Fn<void(bool)> done);
 	[[nodiscard]] bool exportInProgress() const { return _exportActive; }
 	[[nodiscard]] bool atCapacity() const { return _full; }
-	[[nodiscard]] uint64 cloudChannelId() const { return _cloudChannelId; }
-	[[nodiscard]] uint64 cloudAccessHash() const { return _cloudAccessHash; }
+	[[nodiscard]] uint64 cloudForumId() const { return _cloudForumId; }
+	[[nodiscard]] uint64 cloudForumAccessHash() const { return _cloudForumAccessHash; }
+	[[nodiscard]] uint64 legacyCloudChannelId();
+	[[nodiscard]] uint64 legacyCloudAccessHash();
 	[[nodiscard]] bool cloudMirrorUnavailable() const { return _mirrorDisabled; }
-	[[nodiscard]] bool ensureCloudChannel();
+	[[nodiscard]] bool ensureCloudForum();
 
 private:
 	struct Pending {
@@ -98,11 +100,47 @@ private:
 		const QString &peer,
 		const QString &msg);
 	void processCloudMirror();
-	void createCloudChannel();
+	void createCloudForum();
+	void recoverCloudForum(
+		const QString &title,
+		int offsetDate = 0,
+		int offsetId = 0,
+		PeerId offsetPeer = PeerId(),
+		int page = 0,
+		int folder = 0);
+	void createCloudTopic(
+		const QString &peer,
+		const QString &title,
+		uint64 randomId,
+		const QByteArray &recordKey);
+	void recoverCloudTopic(
+		const QString &peer,
+		const QString &title,
+		uint64 randomId,
+		const QByteArray &recordKey,
+		int offsetDate = 0,
+		int offsetId = 0,
+		int offsetTopic = 0,
+		int page = 0);
 	void sendCloudSnapshot();
 	void markCloudSent(const QByteArray &key);
-	[[nodiscard]] bool saveCloudChannel(uint64 id, uint64 accessHash);
-	void loadCloudChannel();
+	void deferCloudEvent(const QByteArray &key, crl::time delay);
+	void pauseCloudMirror(const QString &errorType, crl::time delay);
+	[[nodiscard]] bool saveCloudDestination(
+		const char *name,
+		uint64 id,
+		uint64 accessHash);
+	void loadCloudDestinations();
+	struct TopicState {
+		int id = 0;
+		QString title;
+		uint64 randomId = 0;
+	};
+	[[nodiscard]] TopicState loadCloudTopic(const QString &peer);
+	[[nodiscard]] bool saveCloudTopic(
+		const QString &peer,
+		const TopicState &topic);
+	[[nodiscard]] bool clearCloudTopic(const QString &peer);
 
 	Session *_owner = nullptr;
 	sqlite3 *_db = nullptr;
@@ -115,9 +153,12 @@ private:
 	std::shared_ptr<bool> _alive = std::make_shared<bool>(true);
 	qint64 _rows = 0;
 	qint64 _eventCounter = 0;
-	uint64 _cloudChannelId = 0;
-	uint64 _cloudAccessHash = 0;
+	uint64 _cloudForumId = 0;
+	uint64 _cloudForumAccessHash = 0;
+	uint64 _legacyChannelId = 0;
+	uint64 _legacyAccessHash = 0;
 	bool _mirrorRequestActive = false;
+	qint64 _mirrorPausedUntil = 0;
 	bool _mirrorDisabled = false;
 	bool _broken = false;
 	bool _full = false;

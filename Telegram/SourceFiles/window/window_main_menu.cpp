@@ -878,17 +878,32 @@ void MainMenu::setupMenu() {
 	)->setClickedCallback([=] {
 		auto &session = controller->session();
 		auto &archive = session.data().archive();
-		if (!archive.ensureCloudChannel()) {
+		if (!archive.ensureCloudForum()) {
 			controller->showToast(tr::lng_accountbank_cloud_failed(tr::now));
-		} else if (const auto id = archive.cloudChannelId()) {
+		} else if (const auto id = archive.cloudForumId()) {
 			const auto channel = session.data().channel(ChannelId(id));
-			channel->setAccessHash(archive.cloudAccessHash());
+			channel->setAccessHash(archive.cloudForumAccessHash());
 			session.api().requestFullPeer(channel);
 			controller->showPeerHistory(channel);
 		} else {
 			controller->showToast(tr::lng_accountbank_cloud_creating(tr::now));
 		}
 	});
+	if (controller->session().data().archive().legacyCloudChannelId()) {
+		addAction(
+			tr::lng_accountbank_cloud_legacy(),
+			{ &st::menuIconSavedMessages }
+		)->setClickedCallback([=] {
+			auto &session = controller->session();
+			auto &archive = session.data().archive();
+			const auto id = archive.legacyCloudChannelId();
+			if (!id) return;
+			const auto channel = session.data().channel(ChannelId(id));
+			channel->setAccessHash(archive.legacyCloudAccessHash());
+			session.api().requestFullPeer(channel);
+			controller->showPeerHistory(channel);
+		});
+	}
 
 	_nightThemeToggle = addAction(
 		tr::lng_menu_night_mode(),
