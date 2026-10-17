@@ -341,6 +341,7 @@ private:
 	void addViewAsMessages();
 	void addViewAsTopics();
 	void addSearchTopics();
+	void addArchiveNavigation();
 	void addDeleteTopic();
 	void addVideoChat();
 	void addViewStatistics();
@@ -1850,6 +1851,25 @@ void Filler::addVideoChat() {
 	});
 }
 
+void Filler::addArchiveNavigation() {
+	const auto history = _request.key.history();
+	if (!history) {
+		return;
+	}
+	const auto controller = _controller;
+	const auto peerId = history->peer->id;
+	_addAction(tr::lng_accountbank_first_message(tr::now), [=] {
+		controller->showPeerHistory(
+			peerId,
+			Window::SectionShow::Way::ClearStack,
+			MsgId(1));
+	}, &st::menuIconSearch);
+	const auto key = _request.key;
+	_addAction(tr::lng_accountbank_jump_to_date(tr::now), [=] {
+		controller->showCalendar({ key });
+	}, &st::menuIconSearch);
+}
+
 void Filler::fillContextMenuActions() {
 	const auto history = _request.key.history();
 	const auto channel = history ? history->peer->asChannel() : nullptr;
@@ -1858,6 +1878,7 @@ void Filler::fillContextMenuActions() {
 		return;
 	}
 	addNewWindow();
+	addArchiveNavigation();
 	addUngroup();
 	addHidePromotion();
 	addToggleArchive();
@@ -1882,6 +1903,7 @@ void Filler::fillContextMenuActions() {
 }
 
 void Filler::fillHistoryActions() {
+	addArchiveNavigation();
 	addToggleMuteSubmenu(true);
 	addCreateTopic();
 	addInfo();

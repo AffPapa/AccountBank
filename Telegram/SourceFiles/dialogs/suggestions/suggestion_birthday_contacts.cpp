@@ -8,6 +8,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "dialogs/suggestions/suggestion.h"
 
 #include "boxes/star_gift_box.h"
+#include "core/application.h"
+#include "core/core_settings.h"
 #include "data/components/promo_suggestions.h"
 #include "data/data_session.h"
 #include "data/data_user.h"
@@ -30,6 +32,10 @@ namespace {
 constexpr auto kSugBirthdayContacts = "BIRTHDAY_CONTACTS_TODAY"_cs;
 
 bool Available(const Context &context) {
+	if (Core::App().settings().readPref<bool>(
+			"accountbank-hide-birthday-suggestions")) {
+		return false;
+	}
 	const auto session = context.session.get();
 	return session->premiumCanBuy()
 		&& session->promoSuggestions().current(kSugBirthdayContacts.utf8());

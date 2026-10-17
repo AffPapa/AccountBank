@@ -9226,5 +9226,14 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_accountbank_cloud_legacy" = "Открыть прежний канал архива";
 "lng_accountbank_cloud_creating" = "Создаётся приватная группа с темами. Откройте меню чуть позже.";
 "lng_accountbank_cloud_failed" = "Облачный архив недоступен. Локальный архив продолжает работать.";
+"lng_accountbank_admin_chats" = "Где я администратор";
+"lng_accountbank_chat_owner" = "Владелец";
+"lng_accountbank_chat_admin" = "Администратор";
+"lng_accountbank_time_seconds" = "Секунды во времени сообщений";
+"lng_accountbank_time_seconds_help" = "Переоткройте чат, чтобы обновить время уже показанных сообщений.";
+"lng_accountbank_first_message" = "К первому сообщению";
+"lng_accountbank_jump_to_date" = "Перейти к дате…";
+"lng_accountbank_hide_birthdays" = "Скрыть подсказки о днях рождения";
+"lng_accountbank_hide_birthdays_help" = "Подсказки исчезнут после повторного открытия клиента.";
 
 // Keys finished

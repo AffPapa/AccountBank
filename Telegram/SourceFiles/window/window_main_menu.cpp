@@ -22,6 +22,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/click_handler_types.h"
 #include "data/data_changes.h"
 #include "data/data_channel.h"
+#include "data/data_chat.h"
 #include "data/data_document_media.h"
 #include "data/data_folder.h"
 #include "data/data_group_call.h"
@@ -83,6 +84,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_settings.h"
 #include "styles/style_wallet.h"
 #include "styles/style_window.h"
+
+#include <algorithm>
 #include "styles/style_window_main_menu.h"
 
 #include <QtGui/QWindow>
@@ -95,6 +98,60 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <QLocale>
 
 namespace {
+
+class AccountBankAdminChats final : public PeerListController {
+public:
+	AccountBankAdminChats(
+			not_null<Window::SessionController*> controller)
+	: _controller(controller) {
+	}
+
+	Main::Session &session() const override {
+		return _controller->session();
+	}
+
+	void prepare() override {
+		delegate()->peerListSetTitle(tr::lng_accountbank_admin_chats());
+		delegate()->peerListSetSearchMode(PeerListSearchMode::Enabled);
+		auto peers = std::vector<not_null<PeerData*>>();
+		const auto append = [&](not_null<PeerData*> peer) {
+			if (const auto chat = peer->asChat()) {
+				if (chat->amIn()
+					&& (chat->amCreator() || chat->hasAdminRights())) {
+					peers.push_back(peer);
+				}
+			} else if (const auto channel = peer->asChannel()) {
+				if (channel->amIn()
+					&& (channel->amCreator() || channel->hasAdminRights())) {
+					peers.push_back(peer);
+				}
+			}
+		};
+		session().data().enumerateGroups(append);
+		session().data().enumerateBroadcasts(append);
+		std::sort(peers.begin(), peers.end(), [](auto a, auto b) {
+			return a->name().localeAwareCompare(b->name()) < 0;
+		});
+		for (const auto peer : peers) {
+			auto row = std::make_unique<PeerListRow>(peer);
+			const auto creator = peer->isChat()
+				? peer->asChat()->amCreator()
+				: peer->asChannel()->amCreator();
+			row->setCustomStatus(creator
+				? tr::lng_accountbank_chat_owner(tr::now)
+				: tr::lng_accountbank_chat_admin(tr::now));
+			delegate()->peerListAppendRow(std::move(row));
+		}
+		delegate()->peerListRefreshRows();
+	}
+
+	void rowClicked(not_null<PeerListRow*> row) override {
+		_controller->showPeerHistory(row->peer()->id);
+	}
+
+private:
+	const not_null<Window::SessionController*> _controller;
+};
 
 QString AccountBankElapsed(qint64 sent, qint64 observed) {
 	if (sent <= 0 || observed < sent) {
@@ -833,6 +890,44 @@ void MainMenu::setupMenu() {
 	)->setClickedCallback([=] {
 		controller->showPeerHistory(controller->session().user());
 	});
+	addAction(
+		tr::lng_accountbank_admin_chats(),
+		{ &st::menuIconChatBubble }
+	)->setClickedCallback([=] {
+		controller->show(Box<PeerListBox>(
+			std::make_unique<AccountBankAdminChats>(controller),
+			[](not_null<PeerListBox*>) {}));
+	});
+	const auto seconds = addAction(
+		tr::lng_accountbank_time_seconds(),
+		{ &st::menuIconSettings }
+	)->toggleOn(rpl::single(Core::App().settings().readPref<bool>(
+		"accountbank-time-seconds")));
+	seconds->toggledChanges(
+	) | rpl::filter([=](bool value) {
+		return value != Core::App().settings().readPref<bool>(
+			"accountbank-time-seconds");
+	}) | rpl::on_next([=](bool value) {
+		Core::App().settings().writePref<bool>(
+			"accountbank-time-seconds", value);
+		Core::App().saveSettingsDelayed();
+		controller->showToast(tr::lng_accountbank_time_seconds_help(tr::now));
+	}, seconds->lifetime());
+	const auto hideBirthdays = addAction(
+		tr::lng_accountbank_hide_birthdays(),
+		{ &st::menuIconSettings }
+	)->toggleOn(rpl::single(Core::App().settings().readPref<bool>(
+		"accountbank-hide-birthday-suggestions")));
+	hideBirthdays->toggledChanges(
+	) | rpl::filter([=](bool value) {
+		return value != Core::App().settings().readPref<bool>(
+			"accountbank-hide-birthday-suggestions");
+	}) | rpl::on_next([=](bool value) {
+		Core::App().settings().writePref<bool>(
+			"accountbank-hide-birthday-suggestions", value);
+		Core::App().saveSettingsDelayed();
+		controller->showToast(tr::lng_accountbank_hide_birthdays_help(tr::now));
+	}, hideBirthdays->lifetime());
 	addAction(
 		tr::lng_menu_settings(),
 		{ &st::menuIconSettings }
