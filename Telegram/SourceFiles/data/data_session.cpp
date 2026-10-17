@@ -3039,11 +3039,37 @@ void Session::updateEditedMessage(const MTPMessage &data) {
 	}, [&](const auto &data) {
 		return message(peerFromMTP(data.vpeer_id()), data.vid().v);
 	});
+	if (data.type() == mtpc_message) {
+		const auto &edited = data.c_message();
+		const auto peer = peerFromMTP(edited.vpeer_id());
+		auto afterPhoto = QString();
+		auto afterDocument = QString();
+		if (const auto media = edited.vmedia()) {
+			if (media->type() == mtpc_messageMediaPhoto) {
+				const auto photo = media->c_messageMediaPhoto().vphoto();
+				if (photo && photo->type() == mtpc_photo) {
+					afterPhoto = QString::number(photo->c_photo().vid().v);
+				}
+			} else if (media->type() == mtpc_messageMediaDocument) {
+				const auto document = media->c_messageMediaDocument().vdocument();
+				if (document && document->type() == mtpc_document) {
+					afterDocument = QString::number(document->c_document().vid().v);
+				}
+			}
+		}
+		_archive->logEditTransition(
+			existing,
+			QString::number(peer.value),
+			QString::number(edited.vid().v),
+			qs(edited.vmessage()),
+			afterPhoto,
+			afterDocument,
+			!peerIsChannel(peer));
+	}
 	if (!existing) {
 		Reactions::CheckUnknownForUnread(this, data);
 		return;
 	}
-	_archive->logEditSnapshot(existing);
 	if (existing->isLocalUpdateMedia() && data.type() == mtpc_message) {
 		updateExistingMessage(data.c_message());
 	}
@@ -3319,11 +3345,9 @@ void Session::processMessagesDeleted(
 		const QVector<MTPint> &data) {
 	const auto list = messagesList(peerId);
 	const auto affected = historyLoaded(peerId);
-	if (!list && !affected) {
-		return;
-	}
 
 	auto toDestroy = std::vector<not_null<HistoryItem*>>();
+	auto missing = std::vector<int>();
 	auto historiesToCheck = base::flat_set<not_null<History*>>();
 	for (const auto &messageId : data) {
 		const auto i = list ? list->find(messageId.v) : Messages::iterator();
@@ -3331,8 +3355,11 @@ void Session::processMessagesDeleted(
 			const auto history = i->second->history();
 			toDestroy.push_back(i->second);
 			historiesToCheck.emplace(history);
-		} else if (affected) {
-			affected->unknownMessageDeleted(messageId.v);
+		} else {
+			missing.push_back(messageId.v);
+			if (affected) {
+				affected->unknownMessageDeleted(messageId.v);
+			}
 		}
 	}
 	if (!toDestroy.empty()) {
@@ -3348,6 +3375,7 @@ void Session::processMessagesDeleted(
 			}
 		}
 	}
+	_archive->logDeletedMissing(QString::number(peerId.value), missing);
 	for (const auto &history : historiesToCheck) {
 		if (!history->chatListMessageKnown()) {
 			history->requestChatListMessage();
@@ -3357,14 +3385,18 @@ void Session::processMessagesDeleted(
 
 void Session::processNonChannelMessagesDeleted(const QVector<MTPint> &data) {
 	auto toDestroy = std::vector<not_null<HistoryItem*>>();
+	auto missing = std::vector<int>();
 	auto historiesToCheck = base::flat_set<not_null<History*>>();
 	for (const auto &messageId : data) {
 		if (const auto item = nonChannelMessage(messageId.v)) {
 			const auto history = item->history();
 			toDestroy.push_back(item);
 			historiesToCheck.emplace(history);
+		} else {
+			missing.push_back(messageId.v);
 		}
 	}
+	_archive->logDeletedMissing(QString(), missing);
 	if (!toDestroy.empty()) {
 		_archive->logDeletedBatch(toDestroy);
 		if (Core::App().settings().keepDeletedMessages()) {
@@ -3593,6 +3625,7 @@ HistoryItem *Session::addNewMessage(
 						data.c_message())) {
 					fillMessagePeers(peerId, data);
 					CheckForSwitchInlineButton(adopted);
+					_archive->logMessage(adopted);
 					return adopted;
 				}
 			}
@@ -3619,6 +3652,9 @@ HistoryItem *Session::addNewMessage(
 		type);
 	if (type == NewMessageType::Unread) {
 		CheckForSwitchInlineButton(result);
+		if (result) {
+			_archive->logMessage(result);
+		}
 	}
 	return result;
 }

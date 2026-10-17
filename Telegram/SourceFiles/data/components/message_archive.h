@@ -38,11 +38,22 @@ public:
 	~MessageArchive();
 
 	void logMessage(not_null<HistoryItem*> item);
-	void logEditSnapshot(not_null<HistoryItem*> item);
+	void logEditTransition(
+		HistoryItem *existing,
+		const QString &peer,
+		const QString &msg,
+		const QString &afterText,
+		const QString &afterPhoto,
+		const QString &afterDocument,
+		bool nonChannel);
 	void logDeleted(not_null<HistoryItem*> item);
 	void logDeletedBatch(const std::vector<not_null<HistoryItem*>> &items);
+	void logDeletedMissing(
+		const QString &peer,
+		const std::vector<int> &ids);
 	void loadRecent(
 		const QString &kind,
+		const QString &peer,
 		Fn<void(RecentResult)> done);
 	void logRead(not_null<History*> history, MsgId upTo);
 	void logPresence(not_null<PeerData*> peer);
@@ -56,6 +67,7 @@ public:
 	[[nodiscard]] bool exportTo(const QString &path);
 	void exportAsync(const QString &path, Fn<void(bool)> done);
 	[[nodiscard]] bool exportInProgress() const { return _exportActive; }
+	[[nodiscard]] bool atCapacity() const { return _full; }
 	[[nodiscard]] uint64 cloudChannelId() const { return _cloudChannelId; }
 	[[nodiscard]] uint64 cloudAccessHash() const { return _cloudAccessHash; }
 	[[nodiscard]] bool cloudMirrorUnavailable() const { return _mirrorDisabled; }
@@ -69,6 +81,9 @@ private:
 		QByteArray data;
 		qint64 ts = 0;
 		bool cloudMirror = false;
+		QByteArray stateKey;
+		QByteArray lookupKey;
+		bool stateReplace = false;
 	};
 
 	void enqueue(
@@ -79,6 +94,9 @@ private:
 		bool cloudMirror = false);
 	bool flush();
 	[[nodiscard]] bool ensureOpened();
+	[[nodiscard]] QJsonObject currentSnapshot(
+		const QString &peer,
+		const QString &msg);
 	void processCloudMirror();
 	void createCloudChannel();
 	void sendCloudSnapshot();

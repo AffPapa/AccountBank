@@ -184,6 +184,8 @@ QJsonObject SerializeItem(not_null<HistoryItem*> item) {
 		item->from() ? QString::number(item->from()->id.value) : QString());
 	object.insert(u"from_name"_q, item->from() ? item->from()->name() : QString());
 	object.insert(u"peer_name"_q, peer->name());
+	object.insert(u"non_channel"_q, !peer->isChannel());
+	object.insert(u"cloud_allowed"_q, item->allowsMediaDownloadControls());
 	object.insert(u"out"_q, item->out());
 	object.insert(u"text"_q, item->originalText().text);
 	if (const auto media = item->media()) {
@@ -230,6 +232,11 @@ void MessageArchive::logMessage(not_null<HistoryItem*> item) {
 	if (!item->isRegular() || item->isSponsored()) {
 		return;
 	}
+	if (_cloudChannelId
+		&& item->history()->peer->id
+			== peerFromChannel(ChannelId(_cloudChannelId))) {
+		return;
+	}
 	auto object = SerializeItem(item);
 	enqueue(
 		u"message"_q,
@@ -238,21 +245,40 @@ void MessageArchive::logMessage(not_null<HistoryItem*> item) {
 		object);
 }
 
-void MessageArchive::logEditSnapshot(not_null<HistoryItem*> item) {
-	if (!item->isRegular() || item->isSponsored()) {
+void MessageArchive::logEditTransition(
+		HistoryItem *existing,
+		const QString &peer,
+		const QString &msg,
+		const QString &afterText,
+		const QString &afterPhoto,
+		const QString &afterDocument,
+		bool nonChannel) {
+	if (existing && (!existing->isRegular() || existing->isSponsored())) {
 		return;
 	}
-	auto object = SerializeItem(item);
-	enqueue(
-		u"edit"_q,
-		object.value(u"peer"_q).toString(),
-		object.value(u"msg"_q).toString(),
-		object,
-		item->allowsMediaDownloadControls()
-			&& (!_cloudChannelId || item->history()->peer->id
-				!= peerFromChannel(ChannelId(_cloudChannelId))));
 	if (!flush()) {
-		LOG(("Archive: edit snapshot could not be saved."));
+		LOG(("Archive: pending snapshots could not be saved before edit."));
+		return;
+	}
+	auto object = existing
+		? SerializeItem(existing)
+		: currentSnapshot(peer, msg);
+	const auto known = !object.isEmpty();
+	if (!known) {
+		object.insert(u"peer"_q, peer);
+		object.insert(u"msg"_q, msg);
+	}
+	object.insert(u"non_channel"_q, nonChannel);
+	object.insert(u"before_known"_q, known);
+	object.insert(u"after_text"_q, afterText);
+	object.insert(u"after_photo"_q, afterPhoto);
+	object.insert(u"after_document"_q, afterDocument);
+	const auto mirror = existing && existing->allowsMediaDownloadControls()
+		&& (!_cloudChannelId || peer
+			!= QString::number(peerFromChannel(ChannelId(_cloudChannelId)).value));
+	enqueue(u"edit"_q, peer, msg, object, mirror);
+	if (!flush()) {
+		LOG(("Archive: edit transition could not be saved."));
 	}
 }
 
@@ -281,8 +307,36 @@ void MessageArchive::logDeletedBatch(
 	}
 }
 
+void MessageArchive::logDeletedMissing(
+		const QString &peer,
+		const std::vector<int> &ids) {
+	if (ids.empty() || !flush()) {
+		return;
+	}
+	for (const auto id : ids) {
+		const auto msg = QString::number(id);
+		auto object = currentSnapshot(peer, msg);
+		if (object.isEmpty()) {
+			// A deletion update carries only an ID. Without a prior snapshot
+			// there is no body to show; avoid filling the bounded archive with
+			// uninformative tombstones from unloaded histories.
+			continue;
+		}
+		object.insert(u"before_known"_q, true);
+		const auto actualPeer = object.value(u"peer"_q).toString();
+		// A cached permission flag may be stale after the chat changes its
+		// protection setting. Missing items stay local until current access
+		// restrictions can be checked against a live HistoryItem.
+		enqueue(u"delete"_q, actualPeer, msg, object);
+	}
+	if (!flush()) {
+		LOG(("Archive: missing-item deletions could not be saved."));
+	}
+}
+
 void MessageArchive::loadRecent(
 		const QString &kind,
+		const QString &peer,
 		Fn<void(RecentResult)> done) {
 	if (_broken || !ensureOpened()) {
 		done({});
@@ -292,7 +346,7 @@ void MessageArchive::loadRecent(
 		+ u"archive.ab"_q;
 	const auto key = _aesKey;
 	const auto session = &_owner->session();
-	crl::async([path, key, kind, session, done = std::move(done)]() mutable {
+	crl::async([path, key, kind, peer, session, done = std::move(done)]() mutable {
 		auto result = RecentResult();
 		auto *db = static_cast<sqlite3*>(nullptr);
 		auto ok = sqlite3_open_v2(
@@ -353,7 +407,9 @@ void MessageArchive::loadRecent(
 						break;
 					}
 					const auto object = json.object();
-					if (object.value(u"kind"_q).toString() == kind) {
+					if (object.value(u"kind"_q).toString() == kind
+						&& (peer.isEmpty()
+							|| object.value(u"peer"_q).toString() == peer)) {
 						result.rows.push_back(object);
 					}
 				}
@@ -436,20 +492,43 @@ void MessageArchive::enqueue(
 	const auto savedMedia = (kind == u"saved_ttl_photo"_q
 		|| kind == u"saved_story"_q);
 	const auto material = kind + ':' + peer + ':' + msg
-		+ ((kind == u"message"_q)
+		+ ((kind == u"message"_q || kind == u"delete"_q)
 			? QString()
 			: savedMedia
 				? (':' + object.value(u"path"_q).toString())
 				: (':' + QString::number(ts)
 				+ ':' + QString::number(_eventCounter++)));
+	const auto indexKey = HmacSha256(_macKey, material.toUtf8());
+	if (indexKey.size() != 32) {
+		LOG(("Archive: index key creation failed."));
+		return;
+	}
+	if (kind == u"message"_q) {
+		// History::newItemAdded and Session::addNewMessage can both report
+		// the same freshly parsed item. Avoid encrypting it twice.
+		const auto recent = std::min<size_t>(_pending.size(), 8);
+		for (auto i = size_t(0); i != recent; ++i) {
+			if (_pending[_pending.size() - i - 1].key == indexKey.left(16)) {
+				return;
+			}
+		}
+	}
 	const auto encrypted = EncryptRecord(
 		_aesKey,
 		QJsonDocument(full).toJson(QJsonDocument::Compact));
-	const auto indexKey = HmacSha256(_macKey, material.toUtf8());
-	if (!encrypted || indexKey.size() != 32) {
+	if (!encrypted) {
 		LOG(("Archive: encryption failed."));
 		return;
 	}
+	const auto tracksState = (kind == u"message"_q || kind == u"edit"_q)
+		&& !peer.isEmpty() && !msg.isEmpty();
+	const auto stateKey = tracksState
+		? HmacSha256(_macKey, (u"state:"_q + peer + ':' + msg).toUtf8()).left(16)
+		: QByteArray();
+	const auto lookupKey = tracksState
+		&& object.value(u"non_channel"_q).toBool()
+		? HmacSha256(_macKey, (u"nonchannel:"_q + msg).toUtf8()).left(16)
+		: QByteArray();
 	_pending.push_back({
 		.key = indexKey.left(16),
 		.nonce = encrypted->nonce,
@@ -457,6 +536,9 @@ void MessageArchive::enqueue(
 		.data = encrypted->data,
 		.ts = ts,
 		.cloudMirror = cloudMirror,
+		.stateKey = stateKey,
+		.lookupKey = lookupKey,
+		.stateReplace = (kind == u"edit"_q),
 	});
 	if (_pending.size() >= kMaxPending) {
 		flush();
@@ -519,6 +601,20 @@ bool MessageArchive::ensureOpened() {
 	}
 	if (sqlite3_exec(
 			_db,
+			"CREATE TABLE IF NOT EXISTS state_index("
+			"key BLOB PRIMARY KEY, record_key BLOB NOT NULL"
+			") WITHOUT ROWID;"
+			"CREATE TABLE IF NOT EXISTS nonchannel_index("
+			"key BLOB PRIMARY KEY, state_key BLOB NOT NULL"
+			") WITHOUT ROWID;",
+			nullptr,
+			nullptr,
+			nullptr) != SQLITE_OK) {
+		_broken = true;
+		return false;
+	}
+	if (sqlite3_exec(
+			_db,
 			"CREATE TABLE IF NOT EXISTS cloud_mirror("
 			"key BLOB PRIMARY KEY, sent INTEGER NOT NULL DEFAULT 0"
 			") WITHOUT ROWID;"
@@ -548,7 +644,120 @@ bool MessageArchive::ensureOpened() {
 	if (stmt) {
 		sqlite3_finalize(stmt);
 	}
+	_full = (_rows >= kMaxRows);
 	return true;
+}
+
+QJsonObject MessageArchive::currentSnapshot(
+		const QString &peer,
+		const QString &msg) {
+	if (_broken || !_db || msg.isEmpty()) {
+		return {};
+	}
+	auto stateKey = QByteArray();
+	if (peer.isEmpty()) {
+		const auto lookupKey = HmacSha256(
+			_macKey, (u"nonchannel:"_q + msg).toUtf8()).left(16);
+		auto *lookup = static_cast<sqlite3_stmt*>(nullptr);
+		if (sqlite3_prepare_v2(
+				_db,
+				"SELECT state_key FROM nonchannel_index WHERE key=?",
+				-1,
+				&lookup,
+				nullptr) != SQLITE_OK) {
+			return {};
+		}
+		sqlite3_bind_blob(
+			lookup, 1, lookupKey.constData(), lookupKey.size(), SQLITE_TRANSIENT);
+		if (sqlite3_step(lookup) == SQLITE_ROW) {
+			stateKey = QByteArray(
+				static_cast<const char*>(sqlite3_column_blob(lookup, 0)),
+				sqlite3_column_bytes(lookup, 0));
+		}
+		sqlite3_finalize(lookup);
+	} else {
+		stateKey = HmacSha256(
+			_macKey, (u"state:"_q + peer + ':' + msg).toUtf8()).left(16);
+	}
+	if (stateKey.isEmpty()) {
+		return {};
+	}
+	auto *stmt = static_cast<sqlite3_stmt*>(nullptr);
+	if (sqlite3_prepare_v2(
+			_db,
+			"SELECT r.nonce,r.tag,r.data FROM state_index s "
+			"JOIN records r ON r.key=s.record_key WHERE s.key=?",
+			-1,
+			&stmt,
+			nullptr) != SQLITE_OK) {
+		return {};
+	}
+	sqlite3_bind_blob(
+		stmt, 1, stateKey.constData(), stateKey.size(), SQLITE_TRANSIENT);
+	auto object = QJsonObject();
+	if (sqlite3_step(stmt) == SQLITE_ROW) {
+		const auto field = [&](int column) {
+			return QByteArray(
+				static_cast<const char*>(sqlite3_column_blob(stmt, column)),
+				sqlite3_column_bytes(stmt, column));
+		};
+		const auto plain = DecryptRecord(
+			_aesKey, field(0), field(1), field(2));
+		object = QJsonDocument::fromJson(plain).object();
+		if (object.value(u"kind"_q).toString() == u"edit"_q) {
+			object.insert(u"text"_q, object.value(u"after_text"_q));
+			object.remove(u"after_text"_q);
+			object.remove(u"before_may_be_stale"_q);
+			object.remove(u"photo"_q);
+			object.remove(u"document"_q);
+			object.remove(u"filename"_q);
+			object.remove(u"size"_q);
+			if (const auto photo = object.value(u"after_photo"_q).toString();
+					!photo.isEmpty()) {
+				object.insert(u"photo"_q, photo);
+			}
+			if (const auto document = object.value(u"after_document"_q).toString();
+					!document.isEmpty()) {
+				object.insert(u"document"_q, document);
+			}
+			object.remove(u"after_photo"_q);
+			object.remove(u"after_document"_q);
+		}
+	}
+	sqlite3_finalize(stmt);
+	if (object.isEmpty() && !peer.isEmpty()) {
+		// v30 stored the first message snapshot before state_index existed.
+		const auto legacyKey = HmacSha256(
+			_macKey, (u"message:"_q + peer + ':' + msg).toUtf8()).left(16);
+		auto *legacy = static_cast<sqlite3_stmt*>(nullptr);
+		if (sqlite3_prepare_v2(
+				_db,
+				"SELECT nonce,tag,data FROM records WHERE key=?",
+				-1,
+				&legacy,
+				nullptr) == SQLITE_OK) {
+			sqlite3_bind_blob(
+				legacy, 1, legacyKey.constData(), legacyKey.size(), SQLITE_TRANSIENT);
+			if (sqlite3_step(legacy) == SQLITE_ROW) {
+				const auto field = [&](int column) {
+					return QByteArray(
+						static_cast<const char*>(sqlite3_column_blob(legacy, column)),
+						sqlite3_column_bytes(legacy, column));
+				};
+				object = QJsonDocument::fromJson(DecryptRecord(
+					_aesKey, field(0), field(1), field(2))).object();
+				if (!object.isEmpty()) {
+					// v30 did not index subsequent edits. This is only the first
+					// observed version, not necessarily the pre-edit version.
+					object.insert(u"before_may_be_stale"_q, true);
+				}
+			}
+		}
+		if (legacy) {
+			sqlite3_finalize(legacy);
+		}
+	}
+	return object;
 }
 
 bool MessageArchive::flush() {
@@ -582,11 +791,41 @@ bool MessageArchive::flush() {
 		_mirrorDisabled = true;
 		LOG(("Archive: cloud mirror queue unavailable."));
 	}
-	if (sqlite3_exec(_db, "BEGIN", nullptr, nullptr, nullptr) != SQLITE_OK) {
+	auto *stateInsert = static_cast<sqlite3_stmt*>(nullptr);
+	auto *stateReplace = static_cast<sqlite3_stmt*>(nullptr);
+	auto *lookupStmt = static_cast<sqlite3_stmt*>(nullptr);
+	const auto stateReady = sqlite3_prepare_v2(
+		_db,
+		"INSERT OR IGNORE INTO state_index(key,record_key) VALUES(?,?)",
+		-1,
+		&stateInsert,
+		nullptr) == SQLITE_OK
+		&& sqlite3_prepare_v2(
+			_db,
+			"INSERT OR REPLACE INTO state_index(key,record_key) VALUES(?,?)",
+			-1,
+			&stateReplace,
+			nullptr) == SQLITE_OK
+		&& sqlite3_prepare_v2(
+			_db,
+			"INSERT OR REPLACE INTO nonchannel_index(key,state_key) VALUES(?,?)",
+			-1,
+			&lookupStmt,
+			nullptr) == SQLITE_OK;
+	const auto finishStatements = [&] {
 		sqlite3_finalize(stmt);
-		if (mirrorStmt) {
-			sqlite3_finalize(mirrorStmt);
-		}
+		if (mirrorStmt) sqlite3_finalize(mirrorStmt);
+		if (stateInsert) sqlite3_finalize(stateInsert);
+		if (stateReplace) sqlite3_finalize(stateReplace);
+		if (lookupStmt) sqlite3_finalize(lookupStmt);
+	};
+	if (!stateReady) {
+		finishStatements();
+		_broken = true;
+		return false;
+	}
+	if (sqlite3_exec(_db, "BEGIN", nullptr, nullptr, nullptr) != SQLITE_OK) {
+		finishStatements();
 		_broken = true;
 		return false;
 	}
@@ -616,6 +855,35 @@ bool MessageArchive::flush() {
 			break;
 		}
 		_rows += sqlite3_changes(_db);
+		if (!record.stateKey.isEmpty()) {
+			auto *state = record.stateReplace ? stateReplace : stateInsert;
+			sqlite3_reset(state);
+			sqlite3_clear_bindings(state);
+			sqlite3_bind_blob(
+				state, 1, record.stateKey.constData(),
+				record.stateKey.size(), SQLITE_TRANSIENT);
+			sqlite3_bind_blob(
+				state, 2, record.key.constData(),
+				record.key.size(), SQLITE_TRANSIENT);
+			if (sqlite3_step(state) != SQLITE_DONE) {
+				ok = false;
+				break;
+			}
+			if (!record.lookupKey.isEmpty()) {
+				sqlite3_reset(lookupStmt);
+				sqlite3_clear_bindings(lookupStmt);
+				sqlite3_bind_blob(
+					lookupStmt, 1, record.lookupKey.constData(),
+					record.lookupKey.size(), SQLITE_TRANSIENT);
+				sqlite3_bind_blob(
+					lookupStmt, 2, record.stateKey.constData(),
+					record.stateKey.size(), SQLITE_TRANSIENT);
+				if (sqlite3_step(lookupStmt) != SQLITE_DONE) {
+					ok = false;
+					break;
+				}
+			}
+		}
 		if (record.cloudMirror && mirrorStmt && !_mirrorDisabled) {
 			sqlite3_reset(mirrorStmt);
 			sqlite3_clear_bindings(mirrorStmt);
@@ -631,10 +899,7 @@ bool MessageArchive::flush() {
 			}
 		}
 	}
-	sqlite3_finalize(stmt);
-	if (mirrorStmt) {
-		sqlite3_finalize(mirrorStmt);
-	}
+	finishStatements();
 	if (ok) {
 		ok = (sqlite3_exec(_db, "COMMIT", nullptr, nullptr, nullptr)
 			== SQLITE_OK);
@@ -986,14 +1251,24 @@ void MessageArchive::sendCloudSnapshot() {
 	const auto label = (object.value(u"kind"_q).toString() == u"edit"_q)
 		? u"До изменения"_q
 		: u"Перед удалением"_q;
+	const auto peerName = object.value(u"peer_name"_q).toString();
+	const auto senderName = object.value(u"from_name"_q).toString();
 	auto text = label
-		+ u"\nЧат ID: "_q + object.value(u"peer"_q).toString()
+		+ u"\nЧат: "_q + (peerName.isEmpty()
+			? object.value(u"peer"_q).toString()
+			: peerName)
+		+ u"\nОтправитель: "_q + (senderName.isEmpty()
+			? object.value(u"from"_q).toString()
+			: senderName)
 		+ u"\nСообщение ID: "_q + QString::number(
 			qint64(object.value(u"msg"_q).toDouble()))
 		+ u"\nДата: "_q + QDateTime::fromSecsSinceEpoch(
 			qint64(object.value(u"date"_q).toDouble())
 		).toString(Qt::ISODate)
-		+ u"\n\n"_q + object.value(u"text"_q).toString();
+		+ u"\n\nБыло: "_q + object.value(u"text"_q).toString();
+	if (object.value(u"kind"_q).toString() == u"edit"_q) {
+		text += u"\nСтало: "_q + object.value(u"after_text"_q).toString();
+	}
 	if (object.contains(u"photo"_q) || object.contains(u"document"_q)) {
 		text += u"\n\n[Медиа не скопировано; метаданные в локальном архиве]"_q;
 	}

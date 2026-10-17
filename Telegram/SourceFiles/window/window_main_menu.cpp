@@ -115,7 +115,9 @@ QString AccountBankElapsed(qint64 sent, qint64 observed) {
 
 void ShowAccountBankArchive(
 		not_null<Window::SessionController*> controller,
-		const QString &kind) {
+		const QString &kind,
+		const QString &peerFilter = QString(),
+		const QString &peerTitle = QString()) {
 	controller->show(Box([=](not_null<Ui::GenericBox*> box) {
 		const auto title = [](const QString &value) {
 			return value == u"delete"_q
@@ -126,9 +128,22 @@ void ShowAccountBankArchive(
 						? tr::lng_accountbank_ttl_archive(tr::now)
 						: tr::lng_accountbank_stories_archive(tr::now);
 		};
-		box->setTitle(rpl::single(title(kind)));
+		box->setTitle(rpl::single(peerFilter.isEmpty()
+			? title(kind)
+			: title(kind) + u" · "_q
+				+ (peerTitle.isEmpty() ? peerFilter : peerTitle)));
 		box->setWidth(st::boxWideWidth);
 		box->setMaxHeight(st::boxMaxListHeight);
+		if (!peerFilter.isEmpty()) {
+			const auto all = box->addRow(object_ptr<Ui::LinkButton>(
+				box,
+				tr::lng_accountbank_archive_all_chats(tr::now),
+				st::aboutVersionLink));
+			all->setClickedCallback([=] {
+				box->closeBox();
+				ShowAccountBankArchive(controller, kind);
+			});
+		}
 		for (const auto &category : {
 			u"delete"_q,
 			u"edit"_q,
@@ -144,10 +159,32 @@ void ShowAccountBankArchive(
 				st::aboutVersionLink));
 			link->setClickedCallback([=] {
 				box->closeBox();
-				ShowAccountBankArchive(controller, category);
+				ShowAccountBankArchive(controller, category, peerFilter, peerTitle);
 			});
 		}
 		box->addSkip(st::boxLittleSkip);
+		box->addRow(object_ptr<Ui::FlatLabel>(
+			box,
+			tr::lng_accountbank_archive_about(tr::now),
+			st::aboutLabel));
+		if (kind == u"delete"_q) {
+			const auto keep = Core::App().settings().keepDeletedMessages();
+			const auto toggle = box->addRow(object_ptr<Ui::LinkButton>(
+				box,
+				keep
+					? tr::lng_accountbank_keep_deleted_on(tr::now)
+					: tr::lng_accountbank_keep_deleted_off(tr::now),
+				st::aboutVersionLink));
+			toggle->setClickedCallback([=] {
+				Core::App().settings().setKeepDeletedMessages(!keep);
+				box->closeBox();
+				ShowAccountBankArchive(controller, kind, peerFilter, peerTitle);
+			});
+			box->addRow(object_ptr<Ui::FlatLabel>(
+				box,
+				tr::lng_accountbank_keep_deleted_help(tr::now),
+				st::aboutLabel));
+		}
 		const auto status = box->addRow(object_ptr<Ui::FlatLabel>(
 			box,
 			tr::lng_accountbank_archive_loading(tr::now),
@@ -156,7 +193,9 @@ void ShowAccountBankArchive(
 		const auto weak = base::make_weak(box);
 		controller->session().data().archive().loadRecent(
 			kind,
-			[weak, status, kind](Data::MessageArchive::RecentResult result) {
+			peerFilter,
+			[weak, status, kind, peerFilter, controller](
+					Data::MessageArchive::RecentResult result) {
 				if (!weak) {
 					return;
 				}
@@ -166,12 +205,19 @@ void ShowAccountBankArchive(
 					return;
 				}
 				if (result.rows.empty()) {
-					status->setText(tr::lng_accountbank_archive_empty(tr::now));
+					status->setText(
+						tr::lng_accountbank_archive_empty(tr::now)
+						+ (controller->session().data().archive().atCapacity()
+							? u"\n"_q + tr::lng_accountbank_archive_full(tr::now)
+							: QString()));
 					return;
 				}
-				status->setText(kind == u"delete"_q || kind == u"edit"_q
+				status->setText((kind == u"delete"_q || kind == u"edit"_q
 					? tr::lng_accountbank_archive_recent(tr::now)
-					: tr::lng_accountbank_archive_saved_note(tr::now));
+					: tr::lng_accountbank_archive_saved_note(tr::now))
+					+ (controller->session().data().archive().atCapacity()
+						? u"\n"_q + tr::lng_accountbank_archive_full(tr::now)
+						: QString()));
 				for (const auto &row : result.rows) {
 					if (kind == u"saved_ttl_photo"_q
 						|| kind == u"saved_story"_q) {
@@ -211,6 +257,19 @@ void ShowAccountBankArchive(
 								File::ShowInFolder(path);
 							});
 						}
+						const auto peerId = row.value(u"peer"_q).toString();
+						if (peerFilter.isEmpty() && !peerId.isEmpty()) {
+							const auto dialog = weak->addRow(
+								object_ptr<Ui::LinkButton>(
+									weak.get(),
+									tr::lng_accountbank_archive_dialog(tr::now),
+									st::aboutVersionLink));
+							dialog->setClickedCallback(
+								[weak, controller, kind, peerId, peer] {
+									if (weak) weak->closeBox();
+									ShowAccountBankArchive(controller, kind, peerId, peer);
+								});
+						}
 						continue;
 					}
 					const auto from = row.value(u"from_name"_q).toString();
@@ -233,22 +292,64 @@ void ShowAccountBankArchive(
 								+ tr::lng_accountbank_archive_file_metadata(tr::now)
 								+ u"]"_q
 							: QString();
-					const auto summary = QString::fromUtf8("%1 · %2\n%3 · ~%4\n%5%6")
+					const auto timeInfo = when + ((sent > 0 && observed >= sent)
+						? u" · ~"_q + elapsed + u" "_q
+							+ tr::lng_accountbank_archive_after_sent(tr::now)
+						: QString());
+					const auto beforeKnown = row.value(u"before_known"_q).toBool(true);
+					const auto before = beforeKnown
+						? (text.isEmpty()
+							? tr::lng_accountbank_archive_no_text(tr::now)
+							: text)
+						: tr::lng_accountbank_archive_unknown_body(tr::now);
+					const auto beforeNote = row.value(u"before_may_be_stale"_q).toBool()
+						? u" "_q + tr::lng_accountbank_archive_old_version(tr::now)
+						: QString();
+					const auto afterText = row.value(u"after_text"_q).toString().left(800);
+					const auto afterPhoto = row.value(u"after_photo"_q).toString();
+					const auto afterDocument = row.value(u"after_document"_q).toString();
+					const auto afterMedia = !afterPhoto.isEmpty()
+						? u" ["_q
+							+ tr::lng_accountbank_archive_photo_metadata(tr::now)
+							+ u" #"_q + afterPhoto + u"]"_q
+						: !afterDocument.isEmpty()
+							? u" ["_q
+								+ tr::lng_accountbank_archive_file_metadata(tr::now)
+								+ u" #"_q + afterDocument + u"]"_q
+							: QString();
+					const auto after = (kind == u"edit"_q)
+						? u"\n"_q + tr::lng_accountbank_archive_after(tr::now)
+							+ u" "_q + (afterText.isEmpty()
+								? tr::lng_accountbank_archive_no_text(tr::now)
+								: afterText) + afterMedia
+						: QString();
+					const auto summary = QString::fromUtf8("%1 · %2\n%3\n%4 %5%6%7")
 						.arg(from.isEmpty()
 							? (fromId.isEmpty()
 								? tr::lng_accountbank_archive_unknown(tr::now)
 								: fromId)
 							: from)
 						.arg(peer.isEmpty() ? peerId : peer)
-						.arg(when)
-						.arg(elapsed)
-						.arg(text.isEmpty()
-							? tr::lng_accountbank_archive_no_text(tr::now)
-							: text)
-						.arg(media);
+						.arg(timeInfo)
+						.arg(tr::lng_accountbank_archive_before(tr::now))
+						.arg(before + beforeNote)
+						.arg(media)
+						.arg(after);
 					const auto label = weak->addRow(
 						object_ptr<Ui::FlatLabel>(weak.get(), summary, st::aboutLabel));
 					label->setSelectable(true);
+					if (peerFilter.isEmpty() && !peerId.isEmpty()) {
+						const auto dialog = weak->addRow(
+							object_ptr<Ui::LinkButton>(
+								weak.get(),
+								tr::lng_accountbank_archive_dialog(tr::now),
+								st::aboutVersionLink));
+						dialog->setClickedCallback(
+							[weak, controller, kind, peerId, peer] {
+								if (weak) weak->closeBox();
+								ShowAccountBankArchive(controller, kind, peerId, peer);
+							});
+					}
 				}
 			});
 	}));
