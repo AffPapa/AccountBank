@@ -1747,7 +1747,9 @@ void Element::refreshMedia(Element *replacing) {
 		_media = media->createView(this, replacing);
 	} else if (item->Has<HistoryServiceGramTransfer>()) {
 		_media = CreateGramTransferMedia(this, replacing);
-	} else if (item->showSimilarChannels()) {
+	} else if (item->showSimilarChannels()
+		&& !Core::App().settings().readPref<bool>(
+			"accountbank-hide-similar-peers")) {
 		_media = std::make_unique<SimilarChannels>(this);
 	} else if (isOnlyCustomEmoji()
 		&& Core::App().settings().largeEmoji()

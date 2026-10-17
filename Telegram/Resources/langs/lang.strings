@@ -9238,5 +9238,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_accountbank_service_time" = "Время у сервисных сообщений";
 "lng_accountbank_ignore_group_mentions" = "Без уведомлений об упоминаниях в группах";
 "lng_accountbank_ignore_group_mentions_help" = "Новые упоминания в группах останутся непрочитанными, но не покажут уведомление и не издадут звук.";
+"lng_accountbank_hide_stories_strip" = "Скрыть ленту сторис над чатами";
+"lng_accountbank_hide_stories_strip_help" = "Лента сторис появится или исчезнет после перезапуска клиента.";
+"lng_accountbank_hide_similar_peers" = "Скрыть похожие каналы и ботов";
+"lng_accountbank_hide_similar_peers_help" = "Рекомендации исчезнут из профилей после повторного открытия клиента.";
 
 // Keys finished

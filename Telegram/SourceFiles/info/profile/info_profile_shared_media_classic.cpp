@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "info/profile/info_profile_shared_media_classic.h"
 
+#include "core/application.h"
+#include "core/core_settings.h"
 #include "core/ui_integration.h"
 #include "data/components/recent_shared_media_gifts.h"
 #include "data/data_channel.h"
@@ -355,9 +357,15 @@ object_ptr<Ui::SlideWrap<Ui::RpWidget>> SetupSharedMediaClassic(
 	addMediaButton(MediaType::GIF, st::infoIconMediaGif);
 	if (const auto bot = peer->asBot()) {
 		addCommonGroupsButton(bot, st::infoIconMediaGroup);
-		addSimilarPeersButton(bot, st::infoIconMediaBot);
+		if (!Core::App().settings().readPref<bool>(
+			"accountbank-hide-similar-peers")) {
+			addSimilarPeersButton(bot, st::infoIconMediaBot);
+		}
 	} else if (const auto channel = peer->asBroadcast()) {
-		addSimilarPeersButton(channel, st::infoIconMediaChannel);
+		if (!Core::App().settings().readPref<bool>(
+			"accountbank-hide-similar-peers")) {
+			addSimilarPeersButton(channel, st::infoIconMediaChannel);
+		}
 	} else if (const auto user = peer->asUser()) {
 		addCommonGroupsButton(user, st::infoIconMediaGroup);
 	}

@@ -943,6 +943,38 @@ void MainMenu::setupMenu() {
 		Core::App().saveSettingsDelayed();
 		controller->showToast(tr::lng_accountbank_hide_birthdays_help(tr::now));
 	}, hideBirthdays->lifetime());
+	const auto hideStories = addAction(
+		tr::lng_accountbank_hide_stories_strip(),
+		{ &st::menuIconSettings }
+	)->toggleOn(rpl::single(Core::App().settings().readPref<bool>(
+		"accountbank-hide-stories-strip")));
+	hideStories->toggledChanges(
+	) | rpl::filter([=](bool value) {
+		return value != Core::App().settings().readPref<bool>(
+			"accountbank-hide-stories-strip");
+	}) | rpl::on_next([=](bool value) {
+		Core::App().settings().writePref<bool>(
+			"accountbank-hide-stories-strip", value);
+		Core::App().saveSettingsDelayed();
+		controller->showToast(
+			tr::lng_accountbank_hide_stories_strip_help(tr::now));
+	}, hideStories->lifetime());
+	const auto hideSimilar = addAction(
+		tr::lng_accountbank_hide_similar_peers(),
+		{ &st::menuIconSettings }
+	)->toggleOn(rpl::single(Core::App().settings().readPref<bool>(
+		"accountbank-hide-similar-peers")));
+	hideSimilar->toggledChanges(
+	) | rpl::filter([=](bool value) {
+		return value != Core::App().settings().readPref<bool>(
+			"accountbank-hide-similar-peers");
+	}) | rpl::on_next([=](bool value) {
+		Core::App().settings().writePref<bool>(
+			"accountbank-hide-similar-peers", value);
+		Core::App().saveSettingsDelayed();
+		controller->showToast(
+			tr::lng_accountbank_hide_similar_peers_help(tr::now));
+	}, hideSimilar->lifetime());
 	const auto ignoreMentions = addAction(
 		tr::lng_accountbank_ignore_group_mentions(),
 		{ &st::menuIconSettings }

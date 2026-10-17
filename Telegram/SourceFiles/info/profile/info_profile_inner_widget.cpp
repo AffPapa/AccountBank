@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "info/profile/info_profile_inner_widget.h"
 
+#include "core/application.h"
+#include "core/core_settings.h"
 #include "info/info_controller.h"
 #include "info/info_memento.h"
 #include "info/info_wrap_widget.h"
@@ -316,7 +318,9 @@ object_ptr<Ui::RpWidget> InnerWidget::setupContent(
 			if (const auto user = _peer->asUser()) {
 				tabs.push_back(MakeCommonGroupsTabDescriptor(user));
 			}
-			if (_peer->asBot() || _peer->asBroadcast()) {
+			if (!Core::App().settings().readPref<bool>(
+				"accountbank-hide-similar-peers")
+				&& (_peer->asBot() || _peer->asBroadcast())) {
 				tabs.push_back(MakeSimilarPeersTabDescriptor(_peer));
 			}
 		}
