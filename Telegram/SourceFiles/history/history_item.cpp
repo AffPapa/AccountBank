@@ -3390,6 +3390,9 @@ bool HistoryItem::allowsReschedule() const {
 }
 
 bool HistoryItem::allowsForward() const {
+	if (Core::App().settings().allowCopyRestricted()) {
+		return !isService() && (isRegular() || isEphemeral());
+	}
 	return !isService()
 		&& (isRegular() || isEphemeral())
 		&& !forbidsForward()

@@ -3919,6 +3919,15 @@ void ApiWrap::forwardMessages(
 		}
 		return;
 	}
+	const auto restricted = ranges::any_of(draft.items, [](
+			not_null<HistoryItem*> item) {
+		return item->forbidsForward()
+			|| !item->history()->peer->allowsForwarding();
+	});
+	if (restricted) {
+		forwardMessagesAsCopies(draft, action, std::move(successCallback));
+		return;
+	}
 	draft.options = HistoryView::Controls::NormalizeForwardOptions(
 		_session,
 		draft.items,
@@ -4159,6 +4168,93 @@ void ApiWrap::forwardMessages(
 		sendAccumulated();
 	}
 	_session->data().sendHistoryChangeNotifications();
+}
+
+void ApiWrap::forwardMessagesAsCopies(
+		const Data::ResolvedForwardDraft &draft,
+		const SendAction &action,
+		FnMut<void()> &&successCallback) {
+	for (const auto item : draft.items) {
+		sendCopyOfItem(item, action);
+	}
+	if (successCallback) {
+		successCallback();
+	}
+}
+
+void ApiWrap::sendCopyOfItem(
+		not_null<HistoryItem*> item,
+		const SendAction &action) {
+	const auto history = action.history;
+	const auto peer = history->peer;
+	const auto media = item->media();
+	auto caption = item->originalText();
+	TextUtilities::Trim(caption);
+	const auto photo = media ? media->photo() : nullptr;
+	const auto document = media ? media->document() : nullptr;
+	const auto ttl = media ? media->ttlSeconds() : crl::time();
+	const auto &options = action.options;
+	if (!ttl && (photo || document)) {
+		const auto randomId = base::RandomValue<uint64>();
+		auto sentEntities = Api::EntitiesToMTP(
+			_session,
+			caption.entities,
+			Api::ConvertOption::SkipLocal);
+		using Flag = MTPmessages_SendMedia::Flag;
+		const auto flags = Flag(0)
+			| (!sentEntities.v.isEmpty() ? Flag::f_entities : Flag(0))
+			| (ShouldSendSilent(peer, options) ? Flag::f_silent : Flag(0))
+			| (options.scheduled ? Flag::f_schedule_date : Flag(0))
+			| (options.sendAs ? Flag::f_send_as : Flag(0));
+		const auto inputMedia = photo
+			? MTP_inputMediaPhoto(
+				MTP_flags(0),
+				photo->mtpInput(),
+				MTP_int(0),
+				MTPInputDocument())
+			: MTP_inputMediaDocument(
+				MTP_flags(0),
+				document->mtpInput(),
+				MTPInputPhoto(),
+				MTP_int(0),
+				MTP_int(0),
+				MTPstring());
+		auto &histories = history->owner().histories();
+		histories.sendPreparedMessage(
+			history,
+			FullReplyTo{},
+			randomId,
+			Data::Histories::PrepareMessage<MTPmessages_SendMedia>(
+				MTP_flags(flags),
+				peer->input(),
+				Data::Histories::ReplyToPlaceholder(),
+				inputMedia,
+				MTP_string(caption.text),
+				MTP_long(randomId),
+				MTPReplyMarkup(),
+				sentEntities,
+				MTP_int(options.scheduled),
+				MTP_int(0),
+				(options.sendAs
+					? options.sendAs->input()
+					: MTP_inputPeerEmpty()),
+				Data::ShortcutIdToMTP(_session, options.shortcutId),
+				MTP_long(options.effectId),
+				MTP_long(0),
+				Api::SuggestToMTP(options.suggest)
+			), [=](const MTPUpdates &result, const MTP::Response &response) {
+			}, [=](const MTP::Error &error, const MTP::Response &response) {
+				sendMessageFail(error, peer, randomId, FullMsgId());
+			});
+	} else if (!caption.text.isEmpty()) {
+		auto message = MessageToSend(action);
+		message.textWithTags = TextWithTags{
+			caption.text,
+			TextUtilities::ConvertEntitiesToTextTags(caption.entities),
+		};
+		message.action.generateLocal = true;
+		sendMessage(std::move(message));
+	}
 }
 
 void ApiWrap::shareContact(

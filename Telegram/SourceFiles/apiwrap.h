@@ -413,6 +413,13 @@ public:
 	void sendMessage(
 		MessageToSend &&message,
 		std::optional<MsgId> localMessageId = std::nullopt);
+	void forwardMessagesAsCopies(
+		const Data::ResolvedForwardDraft &draft,
+		const SendAction &action,
+		FnMut<void()> &&successCallback);
+	void sendCopyOfItem(
+		not_null<HistoryItem*> item,
+		const SendAction &action);
 	void sendBotStart(
 		std::shared_ptr<Ui::Show> show,
 		not_null<UserData*> bot,
