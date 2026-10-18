@@ -1249,30 +1249,6 @@ bool MessageArchive::saveCloudDestination(
 	return saved;
 }
 
-void MessageArchive::clearCloudDestination(const char *name) {
-	if (!ensureOpened() || _broken) {
-		return;
-	}
-	auto *stmt = static_cast<sqlite3_stmt*>(nullptr);
-	if (sqlite3_prepare_v2(_db,
-			"DELETE FROM cloud_config WHERE key=?",
-			-1,
-			&stmt,
-			nullptr) != SQLITE_OK) {
-		return;
-	}
-	sqlite3_bind_text(stmt, 1, name, -1, SQLITE_STATIC);
-	sqlite3_step(stmt);
-	sqlite3_finalize(stmt);
-	if (QString::fromLatin1(name) == u"forum"_q) {
-		_cloudForumId = 0;
-		_cloudForumAccessHash = 0;
-	} else if (QString::fromLatin1(name) == u"channel"_q) {
-		_legacyChannelId = 0;
-		_legacyAccessHash = 0;
-	}
-}
-
 MessageArchive::TopicState MessageArchive::loadCloudTopic(
 		const QString &peer) {
 	const auto key = HmacSha256(
@@ -1348,22 +1324,6 @@ bool MessageArchive::saveCloudTopic(
 	return saved;
 }
 
-bool MessageArchive::clearCloudTopic(const QString &peer) {
-	const auto key = HmacSha256(
-		_macKey, (u"cloud topic:"_q + peer).toUtf8()).left(16);
-	if (key.size() != 16) return false;
-	auto *stmt = static_cast<sqlite3_stmt*>(nullptr);
-	if (sqlite3_prepare_v2(_db,
-			"DELETE FROM cloud_topics WHERE key=?",
-			-1, &stmt, nullptr) != SQLITE_OK) {
-		return false;
-	}
-	sqlite3_bind_blob(stmt, 1, key.constData(), key.size(), SQLITE_TRANSIENT);
-	const auto saved = (sqlite3_step(stmt) == SQLITE_DONE);
-	sqlite3_finalize(stmt);
-	return saved;
-}
-
 void MessageArchive::processCloudMirror() {
 	if (_mirrorDisabled || _mirrorRequestActive || !_db || _broken) {
 		return;
@@ -1420,11 +1380,6 @@ bool MessageArchive::ensureCloudForum() {
 			_mirrorPausedUntil - QDateTime::currentMSecsSinceEpoch()));
 		return true;
 	}
-	if (_cloudForumId
-		&& !_owner->session().data().peerLoaded(
-			peerFromChannel(ChannelId(_cloudForumId)))) {
-		clearCloudDestination("forum");
-	}
 	if (!_cloudForumId && !_mirrorRequestActive) {
 		createCloudForum();
 	}
@@ -1445,28 +1400,39 @@ void MessageArchive::createCloudForum() {
 			_mirrorPausedUntil - QDateTime::currentMSecsSinceEpoch()));
 		return;
 	}
-	const auto intent = loadCloudTopic(u"__forum_intent__"_q);
+	auto intent = loadCloudTopic(u"__forum_intent__"_q);
 	if (_mirrorDisabled) {
 		return;
 	}
-	if (!intent.title.isEmpty()) {
+	if (intent.title.isEmpty()) {
+		const auto marker = HmacSha256(
+			_macKey, "forum installation").left(6).toHex();
+		intent.title = u"Архив AccountBank · копия "_q
+			+ QString::fromLatin1(marker.toUpper());
+		const auto random = HmacSha256(
+			_macKey, "forum creation intent");
+		if (random.size() != 32) {
+			_mirrorDisabled = true;
+			return;
+		}
+		for (auto i = 0; i != 8; ++i) {
+			intent.randomId |= uint64(uint8(random[i])) << (i * 8);
+		}
+		if (!intent.randomId) intent.randomId = 1;
+		intent.id = -3; // Search the server before the first create.
+		if (!saveCloudTopic(u"__forum_intent__"_q, intent)) {
+			_mirrorDisabled = true;
+			return;
+		}
+	}
+	if (intent.id != -5) {
 		recoverCloudForum(intent.title);
 		return;
 	}
-	const auto marker = HmacSha256(_macKey, "forum installation").left(6).toHex();
-	const auto title = u"Архив AccountBank · копия "_q
-		+ QString::fromLatin1(marker.toUpper());
-	const auto random = HmacSha256(_macKey, "forum creation intent");
-	if (random.size() != 32) {
-		_mirrorDisabled = true;
-		return;
-	}
-	auto randomId = uint64(0);
-	for (auto i = 0; i != 8; ++i) {
-		randomId |= uint64(uint8(random[i])) << (i * 8);
-	}
-	if (!saveCloudTopic(u"__forum_intent__"_q,
-			{ 0, title, randomId ? randomId : 1 })) {
+	// The create call has no random_id. Persist the attempted state first, so
+	// a restart can only recover the same forum, never blindly create another.
+	intent.id = 0;
+	if (!saveCloudTopic(u"__forum_intent__"_q, intent)) {
 		_mirrorDisabled = true;
 		return;
 	}
@@ -1475,7 +1441,7 @@ void MessageArchive::createCloudForum() {
 	using Flag = MTPchannels_CreateChannel::Flag;
 	_owner->session().api().request(MTPchannels_CreateChannel(
 		MTP_flags(Flag::f_megagroup | Flag::f_forum),
-		MTP_string(title),
+		MTP_string(intent.title),
 		MTP_string(u"Личный архив изменений и удалений сообщений. "
 			"Каждая тема относится к отдельному диалогу. "
 			"Номер копии в названии помогает приложению найти архив после сбоя."_q),
@@ -1529,8 +1495,7 @@ void MessageArchive::createCloudForum() {
 		const auto delay = CloudRetryDelay(error);
 		pauseCloudMirror(error.type(), delay);
 		if (error.code() == 400 || error.code() == 403) {
-			// createChannel has no random_id. Keep the intent and never
-			// automatically create another forum after a definite rejection.
+			// Keep the intent and never automatically create another forum.
 			auto failed = loadCloudTopic(u"__forum_intent__"_q);
 			failed.id = -2;
 			if (!saveCloudTopic(u"__forum_intent__"_q, failed)) {
@@ -1582,18 +1547,14 @@ void MessageArchive::recoverCloudForum(
 				if (!channel.is_forum() || !channel.is_megagroup()) {
 					continue;
 				}
-				// WHY: older copies may carry a different marker suffix,
-				// so any archive group is adopted instead of creating a new one.
 				const auto channelTitle = qs(channel.vtitle());
-				if (channelTitle == title
-					|| channelTitle.startsWith(
-						u"Архив AccountBank · копия"_q)) {
+				if (channelTitle == title) {
 					id = channel.vid().v;
 					hash = channel.vaccess_hash().value_or_empty();
 					break;
 				}
 			}
-			hasMore = sliced && !data.vdialogs().v.empty();
+			hasMore = sliced && data.vdialogs().v.size() >= 100;
 			if (!sliced || id) return;
 			for (auto i = data.vdialogs().v.size(); i > 0; --i) {
 				const auto &dialog = data.vdialogs().v[i - 1];
@@ -1633,9 +1594,8 @@ void MessageArchive::recoverCloudForum(
 		} else if (!hasMore && !folder) {
 			recoverCloudForum(title, 0, 0, PeerId(), 0, 1);
 		} else if (!hasMore) {
-			// A createChannel response can be lost after server success. Require
-			// two complete scans, separated by a retry interval, before another
-			// create attempt. The marker is retained across process restarts.
+			// Scan twice before the first create. Once createChannel may have
+			// been sent, keep searching instead of risking a duplicate forum.
 			auto intent = loadCloudTopic(u"__forum_intent__"_q);
 			if (_mirrorDisabled) return;
 			if (intent.id == -2) {
@@ -1644,15 +1604,18 @@ void MessageArchive::recoverCloudForum(
 					"cloud mirror stopped for this session."));
 				return;
 			}
-			const auto saved = (intent.id == -1)
-				? clearCloudTopic(u"__forum_intent__"_q)
-				: (intent.id = -1,
-					saveCloudTopic(u"__forum_intent__"_q, intent));
+			const auto initialSearch = (intent.id == -3 || intent.id == -4);
+			intent.id = (intent.id == -3) ? -4
+				: (intent.id == -4) ? -5 : -1;
+			const auto saved = saveCloudTopic(
+				u"__forum_intent__"_q, intent);
 			if (!saved) {
 				_mirrorDisabled = true;
 				return;
 			}
-			_mirrorTimer.callOnce(crl::time(5 * 60 * 1000));
+			_mirrorTimer.callOnce(initialSearch
+				? crl::time(1000)
+				: crl::time(5 * 60 * 1000));
 		} else {
 			LOG(("Archive: forum creation outcome still unknown; "
 				"will not create a duplicate."));
@@ -2033,10 +1996,10 @@ void MessageArchive::sendCloudSnapshot() {
 		if (error.type() == u"RANDOM_ID_DUPLICATE"_q) {
 			markCloudSent(key);
 		} else if (!legacy && error.type() == u"PEER_ID_INVALID"_q) {
-			// The saved forum no longer resolves for this account: forget it
-			// and let the next cycle recover one of the existing archive groups.
-			clearCloudDestination("forum");
-			_mirrorTimer.callOnce(crl::time(1000));
+			// A stale peer cache or a temporary server error must not erase the
+			// saved forum identity and start a second archive group.
+			_mirrorDisabled = true;
+			LOG(("Archive: saved forum is inaccessible; cloud mirror stopped."));
 		} else {
 			if (!legacy && error.type() == u"TOPIC_DELETED"_q) {
 				auto topic = loadCloudTopic(
