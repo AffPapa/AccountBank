@@ -778,6 +778,25 @@ void ListWidget::refreshViewer() {
 	}, _viewerLifetime);
 }
 
+void ListWidget::refreshIgnoredUser(quint64 userId) {
+	auto changed = false;
+	for (const auto &view : _items) {
+		const auto item = view->data();
+		const auto from = item->from();
+		if (item->isRegular() && !item->out()
+			&& from && from->isUser()
+			&& from->id.value == userId) {
+			view->setPendingResize();
+			changed = true;
+		}
+	}
+	if (changed) {
+		cancelSelection();
+		updateItemsGeometry();
+		updateSize();
+	}
+}
+
 void ListWidget::refreshRows(const Data::MessagesSlice &old) {
 	Expects(_viewsCapacity.empty());
 

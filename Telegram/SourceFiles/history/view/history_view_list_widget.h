@@ -364,6 +364,7 @@ public:
 		const Window::SectionShow &params,
 		Fn<void(bool found)> done = nullptr);
 	void refreshViewer();
+	void refreshIgnoredUser(quint64 userId);
 	void overrideInitialScroll(Fn<bool()> callback);
 
 	[[nodiscard]] TextForMimeData getSelectedText() const;

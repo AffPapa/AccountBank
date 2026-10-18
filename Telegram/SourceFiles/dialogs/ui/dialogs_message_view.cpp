@@ -145,6 +145,7 @@ bool MessageView::prepared(
 		Data::SavedMessages *monoforum) const {
 	return (_textCachedFor == item.get())
 		&& (_unreadMedia == item->isUnreadMedia())
+		&& (_ignoredForDisplay == item->isIgnoredForDisplay())
 		&& ((!forum && !monoforum)
 			|| (_topics
 				&& _topics->forum() == forum
@@ -176,10 +177,13 @@ void MessageView::prepare(
 			_topics->prepare(item->sublistPeerId(), customEmojiRepaint);
 		}
 	}
-	if (_textCachedFor == item.get()) {
+	const auto ignoredForDisplay = item->isIgnoredForDisplay();
+	if (_textCachedFor == item.get()
+		&& _ignoredForDisplay == ignoredForDisplay) {
 		_unreadMedia = item->isUnreadMedia();
 		return;
 	}
+	_ignoredForDisplay = ignoredForDisplay;
 	options.existing = &_imagesCache;
 	options.ignoreTopic = true;
 	options.spoilerLoginCode = true;

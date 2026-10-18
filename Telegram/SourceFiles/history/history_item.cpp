@@ -39,6 +39,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "apiwrap.h"
 #include "media/audio/media_audio.h"
 #include "core/application.h"
+#include "core/core_settings.h"
 #include "wallet/wallet_address.h"
 #include "wallet/wallet_fiat.h"
 #include "wallet/wallet_panel.h"
@@ -50,6 +51,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/call_delayed.h"
 #include "base/unixtime.h"
 #include "base/timer_rpl.h"
+
+#include <QSet>
 #include "boxes/send_credits_box.h"
 #include "api/api_text_entities.h"
 #include "api/api_updates.h"
@@ -4952,8 +4955,36 @@ const HiddenSenderInfo *HistoryItem::savedFromHiddenSenderInfo() const {
 	return nullptr;
 }
 
+bool HistoryItem::isIgnoredForDisplay() const {
+	if (!isRegular() || out()) {
+		return false;
+	}
+	const auto sender = from();
+	if (!sender || !sender->isUser()) {
+		return false;
+	}
+	static auto cachedFor = QByteArray();
+	static auto cached = QSet<quint64>();
+	const auto raw = Core::App().settings().ignoredUsers();
+	if (raw != cachedFor) {
+		cachedFor = raw;
+		cached.clear();
+		for (const auto &part : raw.split(',')) {
+			auto ok = false;
+			const auto id = part.toULongLong(&ok);
+			if (ok && id) {
+				cached.insert(id);
+			}
+		}
+	}
+	return cached.contains(sender->id.value);
+}
+
 TextWithEntities HistoryItem::notificationText(
 		NotificationTextOptions options) const {
+	if (isIgnoredForDisplay()) {
+		return {};
+	}
 	auto result = [&] {
 		if (_media && !isService()) {
 			return _media->notificationText();
@@ -4985,6 +5016,9 @@ TextWithEntities HistoryItem::notificationText(
 }
 
 ItemPreview HistoryItem::toPreview(ToPreviewOptions options) const {
+	if (isIgnoredForDisplay()) {
+		return {};
+	}
 	if (isService()) {
 		const_cast<HistoryItem*>(this)->resolveDependent();
 

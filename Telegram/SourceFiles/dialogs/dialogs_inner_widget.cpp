@@ -4768,6 +4768,7 @@ void InnerWidget::searchReceived(
 		? _searchState.inChat
 		: Key(_openedForum->history());
 	if (inject
+		&& !inject->isIgnoredForDisplay()
 		&& (globalSearch
 			|| !_searchState.inChat
 			|| inject->history() == _searchState.inChat.history())) {
@@ -4784,6 +4785,9 @@ void InnerWidget::searchReceived(
 	}
 	auto &results = toPreview ? _previewResults : _searchResults;
 	for (const auto &item : messages) {
+		if (item->isIgnoredForDisplay()) {
+			continue;
+		}
 		const auto history = item->history();
 		if (toPreview || !uniquePeers || !hasHistoryInResults(history)) {
 			const auto index = int(results.size());

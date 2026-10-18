@@ -27,6 +27,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/window_accountbank_actions.h"
 #include "window/window_session_controller.h"
 #include "styles/style_boxes.h"
+#include "styles/style_layers.h"
 #include "styles/style_menu_icons.h"
 #include "styles/style_settings.h"
 
@@ -41,10 +42,13 @@ void ShowIgnoredUsersBox(
 		not_null<Ui::GenericBox*> box,
 		not_null<Window::SessionController*> controller) {
 	box->setTitle(tr::lng_accountbank_settings_ignored_users());
+	box->setWidth(st::boxWideWidth);
+	box->setMaxHeight(st::boxMaxListHeight);
 	box->addRow(object_ptr<Ui::FlatLabel>(
 		box,
 		tr::lng_accountbank_settings_ignored_help(),
 		st::aboutLabel));
+	box->addSkip(st::boxLittleSkip);
 	const auto raw = Core::App().settings().ignoredUsers();
 	auto shown = QSet<quint64>();
 	for (const auto &part : raw.split(',')) {
@@ -58,23 +62,27 @@ void ShowIgnoredUsersBox(
 		const auto loadedName = user ? user->name() : QString();
 		const auto name = !loadedName.isEmpty()
 			? loadedName
-			: tr::lng_accountbank_settings_ignored_unknown(
-				tr::now,
-				lt_id,
-				QString::number(id));
+			: tr::lng_accountbank_settings_ignored_unnamed(tr::now);
+		box->addRow(object_ptr<Ui::FlatLabel>(
+			box,
+			name + u"\n"_q
+				+ tr::lng_accountbank_peer_id_user(tr::now)
+				+ QString::number(id),
+			st::boxLabel));
 		const auto remove = box->addRow(object_ptr<Ui::LinkButton>(
 			box,
-			tr::lng_accountbank_settings_ignored_remove(
-				tr::now,
-				lt_name,
-				name),
+			tr::lng_accountbank_settings_ignored_remove(tr::now),
 			st::aboutVersionLink));
 		remove->setClickedCallback([=] {
 			auto parts = Core::App().settings().ignoredUsers().split(',');
 			parts.removeAll(QByteArray::number(id));
 			Core::App().settings().setIgnoredUsers(parts.join(','));
 			box->closeBox();
+			controller->show(Box([=](not_null<Ui::GenericBox*> next) {
+				ShowIgnoredUsersBox(next, controller);
+			}));
 		});
+		box->addSkip(st::boxLittleSkip);
 	}
 	if (shown.isEmpty()) {
 		box->addRow(object_ptr<Ui::FlatLabel>(
@@ -148,40 +156,12 @@ void BuildAccountBankContent(SectionBuilder &builder) {
 	AddPreference(builder, u"accountbank/keep-deleted"_q,
 		tr::lng_accountbank_settings_keep_deleted(), "keep-deleted", true);
 	builder.addDividerText(tr::lng_accountbank_keep_deleted_help());
-	builder.addSubsectionTitle({
+	builder.addButton({
 		.id = u"accountbank/local-archive"_q,
 		.title = tr::lng_accountbank_settings_local_archive(),
-	});
-	builder.addButton({
-		.id = u"accountbank/deleted-archive"_q,
-		.title = tr::lng_accountbank_deleted_archive(),
-		.icon = { &st::menuIconDelete },
+		.icon = { &st::menuIconArchiveOpen },
 		.onClick = [=] {
-			Window::ShowAccountBankArchive(controller, u"delete"_q);
-		},
-	});
-	builder.addButton({
-		.id = u"accountbank/edited-archive"_q,
-		.title = tr::lng_accountbank_edited_archive(),
-		.icon = { &st::menuIconEdit },
-		.onClick = [=] {
-			Window::ShowAccountBankArchive(controller, u"edit"_q);
-		},
-	});
-	builder.addButton({
-		.id = u"accountbank/ttl-archive"_q,
-		.title = tr::lng_accountbank_ttl_archive(),
-		.icon = { &st::menuIconPhoto },
-		.onClick = [=] {
-			Window::ShowAccountBankArchive(controller, u"saved_ttl_photo"_q);
-		},
-	});
-	builder.addButton({
-		.id = u"accountbank/stories-archive"_q,
-		.title = tr::lng_accountbank_stories_archive(),
-		.icon = { &st::menuIconStoriesSavedSection },
-		.onClick = [=] {
-			Window::ShowAccountBankArchive(controller, u"saved_story"_q);
+			Window::ShowAccountBankArchiveHome(controller);
 		},
 	});
 	builder.addSubsectionTitle({

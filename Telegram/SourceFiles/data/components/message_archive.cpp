@@ -389,8 +389,16 @@ void MessageArchive::loadRecent(
 		const QString &kind,
 		const QString &peer,
 		Fn<void(RecentResult)> done) {
-	if (_broken || !ensureOpened()
-		|| (!_pending.empty() && !flush())) {
+	if (_broken) {
+		LOG(("Archive: recent read unavailable (archive disabled)."));
+		done({});
+		return;
+	} else if (!ensureOpened()) {
+		LOG(("Archive: recent read unavailable (initialization failed)."));
+		done({});
+		return;
+	} else if (!_pending.empty() && !flush()) {
+		LOG(("Archive: recent read unavailable (pending write failed)."));
 		done({});
 		return;
 	}
@@ -406,6 +414,9 @@ void MessageArchive::loadRecent(
 				&db,
 				SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX,
 				nullptr) == SQLITE_OK;
+		if (!ok) {
+			LOG(("Archive: recent read failed (read-only open)."));
+		}
 		if (ok) {
 			sqlite3_busy_timeout(db, 5000);
 			// Sort only the small opaque keys and timestamps. Loading encrypted
@@ -419,6 +430,9 @@ void MessageArchive::loadRecent(
 				-1,
 				&order,
 				nullptr) == SQLITE_OK;
+			if (!ok) {
+				LOG(("Archive: recent read failed (order query)."));
+			}
 			if (ok) {
 				ok = sqlite3_prepare_v2(
 					db,
@@ -426,6 +440,9 @@ void MessageArchive::loadRecent(
 					-1,
 					&record,
 					nullptr) == SQLITE_OK;
+				if (!ok) {
+					LOG(("Archive: recent read failed (record query)."));
+				}
 			}
 			if (ok) {
 				auto step = int();
@@ -441,6 +458,7 @@ void MessageArchive::loadRecent(
 							SQLITE_TRANSIENT) != SQLITE_OK
 						|| sqlite3_step(record) != SQLITE_ROW) {
 						ok = false;
+						LOG(("Archive: recent read failed (record lookup)."));
 						break;
 					}
 					const auto nonce = QByteArray(
@@ -456,6 +474,7 @@ void MessageArchive::loadRecent(
 					const auto json = QJsonDocument::fromJson(plain);
 					if (plain.isEmpty() || !json.isObject()) {
 						ok = false;
+						LOG(("Archive: recent read failed (record authentication or format)."));
 						break;
 					}
 					const auto object = json.object();
@@ -467,6 +486,9 @@ void MessageArchive::loadRecent(
 				}
 				if (ok && result.rows.size() < 50) {
 					ok = (step == SQLITE_DONE);
+					if (!ok) {
+						LOG(("Archive: recent read failed (record scan)."));
+					}
 				}
 			}
 			if (record) {
@@ -1403,8 +1425,8 @@ void MessageArchive::createCloudForum() {
 		return;
 	}
 	const auto marker = HmacSha256(_macKey, "forum installation").left(6).toHex();
-	const auto title = u"Архив AccountBank · #"_q
-		+ QString::fromLatin1(marker);
+	const auto title = u"Архив AccountBank · копия "_q
+		+ QString::fromLatin1(marker.toUpper());
 	const auto random = HmacSha256(_macKey, "forum creation intent");
 	if (random.size() != 32) {
 		_mirrorDisabled = true;
@@ -1425,7 +1447,9 @@ void MessageArchive::createCloudForum() {
 	_owner->session().api().request(MTPchannels_CreateChannel(
 		MTP_flags(Flag::f_megagroup | Flag::f_forum),
 		MTP_string(title),
-		MTP_string(u"Личный архив изменений и удалений сообщений"_q),
+		MTP_string(u"Личный архив изменений и удалений сообщений. "
+			"Каждая тема относится к отдельному диалогу. "
+			"Номер копии в названии помогает приложению найти архив после сбоя."_q),
 		MTPInputGeoPoint(),
 		MTPstring(),
 		MTP_int(0)

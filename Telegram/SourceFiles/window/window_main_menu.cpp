@@ -210,6 +210,9 @@ QString AccountBankElapsed(qint64 sent, qint64 observed) {
 	return tr::lng_minutes_tiny(tr::now, lt_count, int(minutes));
 }
 
+void ShowAccountBankArchiveHomeBox(
+		not_null<Window::SessionController*> controller);
+
 void ShowAccountBankArchiveBox(
 		not_null<Window::SessionController*> controller,
 		const QString &kind,
@@ -231,6 +234,14 @@ void ShowAccountBankArchiveBox(
 				+ (peerTitle.isEmpty() ? peerFilter : peerTitle)));
 		box->setWidth(st::boxWideWidth);
 		box->setMaxHeight(st::boxMaxListHeight);
+		const auto back = box->addRow(object_ptr<Ui::LinkButton>(
+			box,
+			tr::lng_accountbank_archive_back(tr::now),
+			st::aboutVersionLink));
+		back->setClickedCallback([=] {
+			box->closeBox();
+			ShowAccountBankArchiveHomeBox(controller);
+		});
 		if (!peerFilter.isEmpty()) {
 			const auto all = box->addRow(object_ptr<Ui::LinkButton>(
 				box,
@@ -239,24 +250,6 @@ void ShowAccountBankArchiveBox(
 			all->setClickedCallback([=] {
 				box->closeBox();
 				ShowAccountBankArchiveBox(controller, kind);
-			});
-		}
-		for (const auto &category : {
-			u"delete"_q,
-			u"edit"_q,
-			u"saved_ttl_photo"_q,
-			u"saved_story"_q,
-		}) {
-			if (category == kind) {
-				continue;
-			}
-			const auto link = box->addRow(object_ptr<Ui::LinkButton>(
-				box,
-				title(category),
-				st::aboutVersionLink));
-			link->setClickedCallback([=] {
-				box->closeBox();
-				ShowAccountBankArchiveBox(controller, category, peerFilter, peerTitle);
 			});
 		}
 		box->addSkip(st::boxLittleSkip);
@@ -268,12 +261,21 @@ void ShowAccountBankArchiveBox(
 			box,
 			tr::lng_accountbank_archive_loading(tr::now),
 			st::aboutLabel));
+		const auto retry = box->addRow(object_ptr<Ui::LinkButton>(
+			box,
+			tr::lng_accountbank_archive_retry(tr::now),
+			st::aboutVersionLink));
+		retry->hide();
+		retry->setClickedCallback([=] {
+			box->closeBox();
+			ShowAccountBankArchiveBox(controller, kind, peerFilter, peerTitle);
+		});
 		box->addButton(tr::lng_close(), [=] { box->closeBox(); });
 		const auto weak = base::make_weak(box);
 		controller->session().data().archive().loadRecent(
 			kind,
 			peerFilter,
-			[weak, status, kind, peerFilter, controller](
+			[weak, status, retry, kind, peerFilter, controller](
 					Data::MessageArchive::RecentResult result) {
 				if (!weak) {
 					return;
@@ -281,6 +283,7 @@ void ShowAccountBankArchiveBox(
 				weak->setMaxHeight(st::boxMaxListHeight);
 				if (!result.ok) {
 					status->setText(tr::lng_accountbank_archive_read_failed(tr::now));
+					retry->show();
 					return;
 				}
 				if (result.rows.empty()) {
@@ -434,9 +437,42 @@ void ShowAccountBankArchiveBox(
 	}));
 }
 
+void ShowAccountBankArchiveHomeBox(
+		not_null<Window::SessionController*> controller) {
+	controller->show(Box([=](not_null<Ui::GenericBox*> box) {
+		box->setTitle(tr::lng_accountbank_archive_home());
+		box->setWidth(st::boxWideWidth);
+		box->addRow(object_ptr<Ui::FlatLabel>(
+			box,
+			tr::lng_accountbank_archive_home_about(),
+			st::aboutLabel));
+		for (const auto &[kind, title] : {
+			std::pair{ u"delete"_q, tr::lng_accountbank_deleted_archive(tr::now) },
+			std::pair{ u"edit"_q, tr::lng_accountbank_edited_archive(tr::now) },
+			std::pair{ u"saved_ttl_photo"_q, tr::lng_accountbank_ttl_archive(tr::now) },
+			std::pair{ u"saved_story"_q, tr::lng_accountbank_stories_archive(tr::now) },
+		}) {
+			const auto button = box->addRow(object_ptr<Ui::SettingsButton>(
+				box,
+				rpl::single(title),
+				st::settingsButtonNoIcon));
+			button->setClickedCallback([=] {
+				box->closeBox();
+				ShowAccountBankArchiveBox(controller, kind);
+			});
+		}
+		box->addButton(tr::lng_close(), [=] { box->closeBox(); });
+	}));
+}
+
 } // namespace
 
 namespace Window {
+
+void ShowAccountBankArchiveHome(
+		not_null<SessionController*> controller) {
+	ShowAccountBankArchiveHomeBox(controller);
+}
 
 void ShowAccountBankArchive(
 		not_null<SessionController*> controller,

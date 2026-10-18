@@ -336,6 +336,9 @@ System::SkipState System::computeSkipState(
 		Data::ItemNotification notification) const {
 	const auto type = notification.type;
 	const auto item = notification.item;
+	if (item->isIgnoredForDisplay()) {
+		return { SkipState::Skip };
+	}
 	const auto thread = item->notificationThread();
 	const auto notifySettings = &thread->owner().notifySettings();
 	const auto messageType = (type == Data::ItemNotificationType::Message);

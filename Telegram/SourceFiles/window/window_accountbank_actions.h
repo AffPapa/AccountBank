@@ -13,6 +13,7 @@ namespace Window {
 
 class SessionController;
 
+void ShowAccountBankArchiveHome(not_null<SessionController*> controller);
 void ShowAccountBankArchive(
 	not_null<SessionController*> controller,
 	const QString &kind);

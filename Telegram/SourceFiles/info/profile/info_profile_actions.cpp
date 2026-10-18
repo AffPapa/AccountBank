@@ -243,7 +243,13 @@ base::options::toggle ShowChannelJoinedBelowAbout({
 			if (!value.empty()) {
 				value.append("\n\n");
 			}
-			value.append(Italic(u"id: "_q));
+			const auto idLabel = peer->asUser()
+				? tr::lng_accountbank_peer_id_user(tr::now)
+				: (peer->asChat()
+					|| (peer->asChannel() && peer->asChannel()->isMegagroup()))
+					? tr::lng_accountbank_peer_id_group(tr::now)
+					: tr::lng_accountbank_peer_id_channel(tr::now);
+			value.append(Italic(idLabel));
 			const auto raw = peer->id.value & PeerId::kChatTypeMask;
 			value.append(Link(
 				Italic(Lang::FormatCountDecimal(raw)),

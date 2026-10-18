@@ -449,6 +449,7 @@ public:
 	[[nodiscard]] TextWithEntities notificationText() const {
 		return notificationText({});
 	}
+	[[nodiscard]] bool isIgnoredForDisplay() const;
 
 	using ToPreviewOptions = HistoryView::ToPreviewOptions;
 	using ItemPreview = HistoryView::ItemPreview;

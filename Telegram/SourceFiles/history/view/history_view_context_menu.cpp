@@ -1461,9 +1461,7 @@ void AddIgnoreUserAction(
 				parts.push_back(toggle);
 			}
 			Core::App().settings().setIgnoredUsers(parts.join(','));
-			if (const auto current = item) {
-				current->history()->owner().requestItemRepaint(current);
-			}
+			list->refreshIgnoredUser(userId);
 		},
 		&st::menuIconBlock);
 }

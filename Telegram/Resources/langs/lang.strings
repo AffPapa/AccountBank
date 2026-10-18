@@ -9289,7 +9289,15 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_accountbank_settings_ignored_users" = "Игнорируемые пользователи";
 "lng_accountbank_settings_ignored_empty" = "Пока нет игнорируемых пользователей.";
 "lng_accountbank_settings_ignored_unknown" = "Пользователь {id}";
-"lng_accountbank_settings_ignored_remove" = "{name} — больше не игнорировать";
-"lng_accountbank_settings_ignored_help" = "Сообщения этих людей становятся бледнее. Уведомления и счётчики не меняются. После удаления из списка заново откройте чат.";
+"lng_accountbank_settings_ignored_remove" = "Убрать из списка";
+"lng_accountbank_settings_ignored_help" = "Сообщения этих людей скрываются в чатах на этом Mac. Новые уведомления о них не появляются, но счётчики Telegram не меняются. После удаления из списка снова откройте чат.";
 "lng_accountbank_settings_chat_refresh" = "Компактный список обновится после перезапуска. Для секунд в старых сообщениях заново откройте чат.";
 "lng_accountbank_settings_appearance_refresh" = "Лента сторис появится или исчезнет после перезапуска клиента.";
+"lng_accountbank_archive_home" = "Локальный архив";
+"lng_accountbank_archive_home_about" = "События текущего аккаунта, сохранённые на этом Mac. Выберите раздел.";
+"lng_accountbank_archive_back" = "К разделам архива";
+"lng_accountbank_archive_retry" = "Повторить чтение";
+"lng_accountbank_peer_id_user" = "ID пользователя Telegram: ";
+"lng_accountbank_peer_id_group" = "ID группы Telegram: ";
+"lng_accountbank_peer_id_channel" = "ID канала Telegram: ";
+"lng_accountbank_settings_ignored_unnamed" = "Пользователь без имени";

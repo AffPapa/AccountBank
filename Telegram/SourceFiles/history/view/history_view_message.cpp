@@ -73,28 +73,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_polls.h"
 
 #include <QRegularExpression>
-#include <QSet>
 
 namespace HistoryView {
 namespace {
-
-[[nodiscard]] QSet<quint64> IgnoredUserIds() {
-	static auto cachedFor = QByteArray();
-	static auto cached = QSet<quint64>();
-	const auto raw = Core::App().settings().ignoredUsers();
-	if (raw != cachedFor) {
-		cachedFor = raw;
-		cached.clear();
-		for (const auto &part : raw.split(',')) {
-			auto ok = false;
-			const auto id = part.toULongLong(&ok);
-			if (ok && id) {
-				cached.insert(id);
-			}
-		}
-	}
-	return cached;
-}
 
 [[nodiscard]] std::optional<QRegularExpression> MessageFilterRegex() {
 	static auto cachedFor = QByteArray();
@@ -117,10 +98,6 @@ namespace {
 [[nodiscard]] bool MessageDimmedByFilter(not_null<const HistoryItem*> item) {
 	if (!item->isRegular() || item->out()) {
 		return false;
-	}
-	const auto from = item->from();
-	if (from && IgnoredUserIds().contains(from->id.value)) {
-		return true;
 	}
 	const auto regex = MessageFilterRegex();
 	return regex && regex->match(item->originalText().text).hasMatch();
@@ -1795,7 +1772,14 @@ void Message::refreshTopicButton() {
 	}
 }
 
+bool Message::isHidden() const {
+	return Element::isHidden() || data()->isIgnoredForDisplay();
+}
+
 int Message::marginTop() const {
+	if (data()->isIgnoredForDisplay()) {
+		return 0;
+	}
 	auto result = 0;
 	if (!isHidden()) {
 		if (isAttachedToPrevious()) {
@@ -1839,6 +1823,9 @@ int Message::marginBottom() const {
 }
 
 void Message::draw(Painter &p, const PaintContext &context) const {
+	if (isHidden()) {
+		return;
+	}
 	auto g = countGeometry();
 	if (g.width() < 1) {
 		return;
