@@ -38,6 +38,12 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 namespace {
 
+int CloudFilterCount(const std::vector<Data::ChatFilter> &list) {
+	return int(ranges::count_if(list, [](const Data::ChatFilter &filter) {
+		return filter.id() && !filter.isLocalRoleFilter();
+	}));
+}
+
 [[nodiscard]] QImage Icon(const Data::ChatFilter &f) {
 	constexpr auto kScale = 0.75;
 	const auto icon = Ui::LookupFilterIcon(Ui::ComputeFilterIcon(f)).normal;
@@ -164,7 +170,7 @@ void ChangeFilterById(
 
 	const auto list = history->owner().chatsFilters().list();
 	const auto i = ranges::find(list, filterId, &Data::ChatFilter::id);
-	if (i != end(list)) {
+	if (i != end(list) && !i->isLocalRoleFilter()) {
 		const auto was = *i;
 		const auto filter = ChangedFilter(was, history, add);
 		history->owner().chatsFilters().set(filter);
@@ -220,7 +226,8 @@ bool ChooseFilterValidator::canAdd() const {
 		return false;
 	}
 	for (const auto &filter : _history->owner().chatsFilters().list()) {
-		if (filter.id() && !filter.contains(_history)) {
+		if (filter.id() && !filter.isLocalRoleFilter()
+			&& !filter.contains(_history)) {
 			return true;
 		}
 	}
@@ -235,7 +242,7 @@ bool ChooseFilterValidator::canAdd(FilterId filterId) const {
 	}
 	const auto list = _history->owner().chatsFilters().list();
 	const auto i = ranges::find(list, filterId, &Data::ChatFilter::id);
-	if (i != end(list)) {
+	if (i != end(list) && !i->isLocalRoleFilter()) {
 		return !i->contains(_history);
 	}
 	return false;
@@ -246,7 +253,7 @@ bool ChooseFilterValidator::canRemove(FilterId filterId) const {
 
 	const auto list = _history->owner().chatsFilters().list();
 	const auto i = ranges::find(list, filterId, &Data::ChatFilter::id);
-	if (i != end(list)) {
+	if (i != end(list) && !i->isLocalRoleFilter()) {
 		return Data::CanRemoveFromChatFilter(*i, _history);
 	}
 	return false;
@@ -259,11 +266,13 @@ ChooseFilterValidator::LimitData ChooseFilterValidator::limitReached(
 
 	const auto list = _history->owner().chatsFilters().list();
 	const auto i = ranges::find(list, filterId, &Data::ChatFilter::id);
+	if (i == end(list) || i->isLocalRoleFilter()) {
+		return {};
+	}
 	const auto limit = _history->owner().pinnedChatsLimit(filterId);
 	const auto &chatsList = always ? i->always() : i->never();
 	return {
-		.reached = (i != end(list))
-			&& !ranges::contains(chatsList, _history)
+		.reached = !ranges::contains(chatsList, _history)
 			&& (chatsList.size() >= limit),
 		.count = int(chatsList.size()),
 	};
@@ -288,7 +297,7 @@ void FillChooseFilterMenu(
 	const auto suppressClose = menu->lifetime().make_state<bool>(false);
 	for (const auto &filter : list) {
 		const auto id = filter.id();
-		if (!id || filter.localAdmins()) {
+		if (!id || filter.isLocalRoleFilter()) {
 			continue;
 		}
 
@@ -355,7 +364,7 @@ void FillChooseFilterMenu(
 	const auto limit = [session = &controller->session()] {
 		return Data::PremiumLimits(session).dialogFiltersCurrent();
 	};
-	if ((list.size() - 1) < limit()) {
+	if (CloudFilterCount(list) < limit()) {
 		menu->addAction(tr::lng_filters_create(tr::now), [=] {
 			const auto strong = weak.get();
 			if (!strong) {
@@ -363,7 +372,7 @@ void FillChooseFilterMenu(
 			}
 			const auto session = &strong->session();
 			const auto &list = session->data().chatsFilters().list();
-			if ((list.size() - 1) >= limit()) {
+			if (CloudFilterCount(list) >= limit()) {
 				return;
 			}
 			const auto chooseNextId = [&] {

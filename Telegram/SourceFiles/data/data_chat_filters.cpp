@@ -326,8 +326,8 @@ bool ChatFilter::hasMyLinks() const {
 	return _flags & Flag::HasMyLinks;
 }
 
-bool ChatFilter::localAdmins() const {
-	return _flags & Flag::LocalAdmins;
+bool ChatFilter::isLocalRoleFilter() const {
+	return _flags & Flag::LocalRole;
 }
 
 const base::flat_set<not_null<History*>> &ChatFilter::always() const {
@@ -345,18 +345,25 @@ const base::flat_set<not_null<History*>> &ChatFilter::never() const {
 bool ChatFilter::contains(
 		not_null<History*> history,
 		bool ignoreFakeUnread) const {
-	if (_flags & Flag::LocalAdmins) {
-		const auto admin = [&] {
+	if (isLocalRoleFilter()) {
+		const auto channels = bool(_flags & Flag::LocalChannels);
+		const auto owners = bool(_flags & Flag::LocalOwner);
+		const auto matches = [&] {
 			if (const auto chat = history->peer->asChat()) {
-				return chat->amCreator() || chat->hasAdminRights();
+				return chat->amIn() && !channels && (owners
+					? chat->amCreator()
+					: !chat->amCreator() && chat->hasAdminRights());
 			} else if (const auto channel = history->peer->asChannel()) {
-				return channel->amCreator() || channel->hasAdminRights();
+				const auto typeMatches = channels
+					? channel->isBroadcast()
+					: channel->isMegagroup();
+				return channel->amIn() && typeMatches && (owners
+					? channel->amCreator()
+					: !channel->amCreator() && channel->hasAdminRights());
 			}
 			return false;
 		}();
-		return admin
-			&& (!(_flags & Flag::NoArchived)
-				|| (history->folderKnown() && !history->folder()));
+		return matches;
 	}
 	const auto flag = [&] {
 		const auto peer = history->peer;
@@ -410,21 +417,46 @@ ChatFilters::ChatFilters(not_null<Session*> owner)
 : _owner(owner)
 , _moreChatsTimer([=] { checkLoadMoreChatsLists(); }) {
 	_list.emplace_back();
-	if (!ranges::contains(_list, kAdminFilterId, &ChatFilter::id)) {
+	const auto appendLocal = [&] (
+			FilterId id,
+			QString title,
+			QString icon,
+			ChatFilter::Flags flags) {
 		_list.emplace_back(
-			kAdminFilterId,
+			id,
 			ChatFilterTitle{
-				TextWithEntities{ tr::lng_accountbank_admin_folder(tr::now) },
+				TextWithEntities{ std::move(title) },
 				true },
-			QString(),
+			std::move(icon),
 			std::nullopt,
-		(ChatFilter::Flag::LocalAdmins | ChatFilter::Flag::NoArchived),
-		base::flat_set<not_null<History*>>(),
-		std::vector<not_null<History*>>(),
-		base::flat_set<not_null<History*>>());
-	}
+			flags,
+			base::flat_set<not_null<History*>>(),
+			std::vector<not_null<History*>>(),
+			base::flat_set<not_null<History*>>());
+	};
+	using Flag = ChatFilter::Flag;
+	appendLocal(kAdminGroupsFilterId,
+		tr::lng_accountbank_admin_groups_folder(tr::now),
+		u"👥"_q,
+		Flag::LocalRole);
+	appendLocal(kAdminChannelsFilterId,
+		tr::lng_accountbank_admin_channels_folder(tr::now),
+		u"📢"_q,
+		Flag::LocalRole | Flag::LocalChannels);
+	appendLocal(kOwnerGroupsFilterId,
+		tr::lng_accountbank_owner_groups_folder(tr::now),
+		u"👑"_q,
+		Flag::LocalRole | Flag::LocalOwner);
+	appendLocal(kOwnerChannelsFilterId,
+		tr::lng_accountbank_owner_channels_folder(tr::now),
+		u"👑"_q,
+		Flag::LocalRole | Flag::LocalOwner | Flag::LocalChannels);
 	owner->session().changes().peerUpdates(
-		Data::PeerUpdate::Flag::Admins | Data::PeerUpdate::Flag::Rights
+		Data::PeerUpdate::Flag::Admins
+		| Data::PeerUpdate::Flag::Rights
+		| Data::PeerUpdate::Flag::Migration
+		| Data::PeerUpdate::Flag::ChannelAmIn
+		| Data::PeerUpdate::Flag::UnavailableReason
 	) | rpl::on_next([=](const Data::PeerUpdate &update) {
 		if (const auto history = owner->historyLoaded(update.peer)) {
 			refreshHistory(history);
@@ -549,7 +581,8 @@ void ChatFilters::received(const QVector<MTPDialogFilter> &list) {
 		}
 		++position;
 	}
-	while (position < _list.size() && !_list[position].localAdmins()) {
+	while (position < _list.size()
+		&& !_list[position].isLocalRoleFilter()) {
 		applyRemove(position);
 		changed = true;
 	}
@@ -697,7 +730,10 @@ void ChatFilters::set(ChatFilter filter) {
 	}
 	const auto i = ranges::find(_list, filter.id(), &ChatFilter::id);
 	if (i == end(_list)) {
-		applyInsert(std::move(filter), _list.size());
+		const auto local = ranges::find_if(_list, [](const ChatFilter &value) {
+			return value.isLocalRoleFilter();
+		});
+		applyInsert(std::move(filter), local - begin(_list));
 		_listChanged.fire({});
 	} else if (applyChange(*i, std::move(filter))) {
 		_listChanged.fire({});
@@ -838,7 +874,9 @@ bool ChatFilters::applyChange(ChatFilter &filter, ChatFilter &&updated) {
 bool ChatFilters::applyOrder(const QVector<MTPint> &order) {
 	const auto locals = int(ranges::count_if(
 		_list,
-		[](const ChatFilter &filter) { return filter.localAdmins(); }));
+		[](const ChatFilter &filter) {
+			return filter.isLocalRoleFilter();
+		}));
 	if (order.size() + locals != _list.size()) {
 		return false;
 	} else if (_list.empty()) {
@@ -921,7 +959,7 @@ void ChatFilters::saveOrder(
 	ids.reserve(order.size());
 	for (const auto id : order) {
 		const auto i = ranges::find(_list, id, &ChatFilter::id);
-		if (i == end(_list) || !i->localAdmins()) {
+		if (i == end(_list) || !i->isLocalRoleFilter()) {
 			ids.push_back(MTP_int(id));
 		}
 	}

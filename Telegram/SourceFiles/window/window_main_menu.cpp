@@ -12,7 +12,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/qt_signal_producer.h"
 #include "boxes/about_box.h"
 #include "core/update_channel.h"
-#include "boxes/peer_list_controllers.h"
 #include "boxes/premium_preview_box.h"
 #include "calls/group/calls_group_common.h"
 #include "calls/calls_box_controller.h"
@@ -91,7 +90,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_wallet.h"
 #include "styles/style_window.h"
 
-#include <algorithm>
 #include "styles/style_window_main_menu.h"
 
 #include <QtGui/QWindow>
@@ -138,60 +136,6 @@ void ShowMessageFilterBox(not_null<Ui::GenericBox*> box) {
 		box->closeBox();
 	});
 }
-
-class AccountBankAdminChats final : public PeerListController {
-public:
-	AccountBankAdminChats(
-			not_null<Window::SessionController*> controller)
-	: _controller(controller) {
-	}
-
-	Main::Session &session() const override {
-		return _controller->session();
-	}
-
-	void prepare() override {
-		delegate()->peerListSetTitle(tr::lng_accountbank_admin_chats());
-		delegate()->peerListSetSearchMode(PeerListSearchMode::Enabled);
-		auto peers = std::vector<not_null<PeerData*>>();
-		const auto append = [&](not_null<PeerData*> peer) {
-			if (const auto chat = peer->asChat()) {
-				if (chat->amIn()
-					&& (chat->amCreator() || chat->hasAdminRights())) {
-					peers.push_back(peer);
-				}
-			} else if (const auto channel = peer->asChannel()) {
-				if (channel->amIn()
-					&& (channel->amCreator() || channel->hasAdminRights())) {
-					peers.push_back(peer);
-				}
-			}
-		};
-		session().data().enumerateGroups(append);
-		session().data().enumerateBroadcasts(append);
-		std::sort(peers.begin(), peers.end(), [](auto a, auto b) {
-			return a->name().localeAwareCompare(b->name()) < 0;
-		});
-		for (const auto peer : peers) {
-			auto row = std::make_unique<PeerListRow>(peer);
-			const auto creator = peer->isChat()
-				? peer->asChat()->amCreator()
-				: peer->asChannel()->amCreator();
-			row->setCustomStatus(creator
-				? tr::lng_accountbank_chat_owner(tr::now)
-				: tr::lng_accountbank_chat_admin(tr::now));
-			delegate()->peerListAppendRow(std::move(row));
-		}
-		delegate()->peerListRefreshRows();
-	}
-
-	void rowClicked(not_null<PeerListRow*> row) override {
-		_controller->showPeerHistory(row->peer()->id);
-	}
-
-private:
-	const not_null<Window::SessionController*> _controller;
-};
 
 QString AccountBankElapsed(qint64 sent, qint64 observed) {
 	if (sent <= 0 || observed < sent) {
@@ -478,12 +422,6 @@ void ShowAccountBankArchive(
 		not_null<SessionController*> controller,
 		const QString &kind) {
 	ShowAccountBankArchiveBox(controller, kind);
-}
-
-void ShowAccountBankAdminChats(not_null<SessionController*> controller) {
-	controller->show(Box<PeerListBox>(
-		std::make_unique<AccountBankAdminChats>(controller),
-		[](not_null<PeerListBox*>) {}));
 }
 
 void ShowAccountBankMessageFilterBox(

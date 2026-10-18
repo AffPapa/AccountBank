@@ -56,7 +56,9 @@ public:
 		NewChats      = (1 << 11), // Telegram Business exceptions.
 		ExistingChats = (1 << 12),
 
-		LocalAdmins  = (1 << 13), // Local-only filter of chats I administer.
+		LocalRole     = (1 << 13),
+		LocalOwner    = (1 << 14),
+		LocalChannels = (1 << 15),
 	};
 	friend constexpr inline bool is_flag_type(Flag) { return true; };
 	using Flags = base::flags<Flag>;
@@ -94,7 +96,7 @@ public:
 	[[nodiscard]] bool staticTitle() const;
 	[[nodiscard]] bool chatlist() const;
 	[[nodiscard]] bool hasMyLinks() const;
-	[[nodiscard]] bool localAdmins() const;
+	[[nodiscard]] bool isLocalRoleFilter() const;
 	[[nodiscard]] const base::flat_set<not_null<History*>> &always() const;
 	[[nodiscard]] const std::vector<not_null<History*>> &pinned() const;
 	[[nodiscard]] const base::flat_set<not_null<History*>> &never() const;
@@ -149,7 +151,10 @@ struct TagColorChanged final {
 	bool colorExistenceChanged = false;
 };
 
-inline constexpr auto kAdminFilterId = FilterId(999'999'999);
+inline constexpr auto kAdminGroupsFilterId = FilterId(999'999'999);
+inline constexpr auto kAdminChannelsFilterId = FilterId(999'999'998);
+inline constexpr auto kOwnerGroupsFilterId = FilterId(999'999'997);
+inline constexpr auto kOwnerChannelsFilterId = FilterId(999'999'996);
 
 class ChatFilters final {
 public:

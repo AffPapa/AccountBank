@@ -795,7 +795,7 @@ void FiltersLimitBox(
 	const auto cloud = int(ranges::count_if(
 		session->data().chatsFilters().list(),
 		[](const Data::ChatFilter &f) {
-			return f.id() != FilterId() && !f.localAdmins();
+			return f.id() != FilterId() && !f.isLocalRoleFilter();
 		}));
 	const auto current = float64(filtersCountOverride.value_or(cloud));
 

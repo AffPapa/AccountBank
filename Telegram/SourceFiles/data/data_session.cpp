@@ -950,6 +950,16 @@ not_null<PeerData*> Session::processChat(const MTPChat &data) {
 		return peer(peerFromChannel(data.vid().v));
 	});
 	auto minimal = false;
+	const auto roleChat = result->asChat();
+	const auto roleChannel = result->asChannel();
+	const auto wasRoleMember = roleChat
+		? roleChat->amIn()
+		: roleChannel->amIn();
+	const auto wasRoleOwner = roleChat
+		? roleChat->amCreator()
+		: roleChannel->amCreator();
+	const auto wasRoleBroadcast = roleChannel && roleChannel->isBroadcast();
+	const auto wasRoleMegagroup = roleChannel && roleChannel->isMegagroup();
 
 	using UpdateFlag = Data::PeerUpdate::Flag;
 	auto flags = UpdateFlag::None | UpdateFlag::None;
@@ -1352,6 +1362,18 @@ not_null<PeerData*> Session::processChat(const MTPChat &data) {
 		channel->setMembersCount(0);
 	}, [](const MTPDchatEmpty &) {
 	});
+	const auto isRoleMember = roleChat
+		? roleChat->amIn()
+		: roleChannel->amIn();
+	const auto isRoleOwner = roleChat
+		? roleChat->amCreator()
+		: roleChannel->amCreator();
+	if (wasRoleMember != isRoleMember
+		|| wasRoleOwner != isRoleOwner
+		|| (roleChannel && (wasRoleBroadcast != roleChannel->isBroadcast()
+			|| wasRoleMegagroup != roleChannel->isMegagroup()))) {
+		flags |= UpdateFlag::Admins;
+	}
 
 	if (minimal) {
 		if (!result->isMinimalLoaded()) {

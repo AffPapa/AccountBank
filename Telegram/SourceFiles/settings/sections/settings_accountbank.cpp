@@ -213,14 +213,7 @@ void BuildAccountBankContent(SectionBuilder &builder) {
 	AddPreference(builder, u"accountbank/sponsored"_q,
 		tr::lng_accountbank_settings_hide_sponsored(), "hide-sponsored", true);
 	builder.addDividerText(tr::lng_accountbank_settings_chat_refresh());
-	builder.addButton({
-		.id = u"accountbank/admin-chats"_q,
-		.title = tr::lng_accountbank_admin_chats(),
-		.icon = { &st::menuIconAdmin },
-		.onClick = [=] {
-			Window::ShowAccountBankAdminChats(controller);
-		},
-	});
+	builder.addDividerText(tr::lng_accountbank_role_folders_help());
 
 	builder.addDivider();
 	builder.addSkip(st::settingsCheckboxesSkip);

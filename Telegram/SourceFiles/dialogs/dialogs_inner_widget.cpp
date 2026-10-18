@@ -4891,7 +4891,7 @@ void InnerWidget::editOpenedFilter() {
 	if (_filterId > 0) {
 		const auto &list = session().data().chatsFilters().list();
 		const auto i = ranges::find(list, _filterId, &Data::ChatFilter::id);
-		if (i != end(list) && i->localAdmins()) {
+		if (i != end(list) && i->isLocalRoleFilter()) {
 			return;
 		}
 		EditExistingFilter(_controller, _filterId);

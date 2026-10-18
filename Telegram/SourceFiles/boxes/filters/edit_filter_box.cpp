@@ -1146,7 +1146,7 @@ void EditExistingFilter(
 	const auto session = &window->session();
 	const auto &list = session->data().chatsFilters().list();
 	const auto i = ranges::find(list, id, &Data::ChatFilter::id);
-	if (i == end(list)) {
+	if (i == end(list) || i->isLocalRoleFilter()) {
 		return;
 	}
 	const auto doneCallback = [=](const Data::ChatFilter &result) {

@@ -4178,13 +4178,16 @@ bool CheckAndJumpToNearChatsFilter(
 	if (index == list->size() && id != 0) {
 		return false;
 	}
-	const auto changed = index + (isNext ? 1 : -1);
-	if (changed >= int(list->size()) || changed < 0) {
-		return false;
-	}
-	if (changed > Data::PremiumLimits(session).dialogFiltersCurrent()) {
-		return false;
-	}
+	auto changed = index;
+	const auto cloudLimit = Data::PremiumLimits(session)
+		.dialogFiltersCurrent();
+	do {
+		changed += isNext ? 1 : -1;
+		if (changed >= int(list->size()) || changed < 0) {
+			return false;
+		}
+	} while (changed > cloudLimit
+		&& !(*list)[changed].isLocalRoleFilter());
 	if (jump) {
 		controller->setActiveChatsFilter((changed >= 0)
 			? (*list)[changed].id()

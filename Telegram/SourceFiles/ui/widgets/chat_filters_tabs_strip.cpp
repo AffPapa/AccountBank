@@ -75,7 +75,7 @@ void ShowMenu(
 			return;
 		}
 		id = list[index].id();
-		local = list[index].localAdmins();
+		local = list[index].isLocalRoleFilter();
 	}
 	state->menu = base::make_unique_q<Ui::PopupMenu>(
 		parent,
@@ -182,7 +182,8 @@ void ShowFiltersListMenu(
 			action,
 			icon,
 			icon);
-		action->setEnabled(i < premiumFrom);
+		action->setEnabled(i < premiumFrom
+			|| list[i].isLocalRoleFilter());
 		if (!title.text.empty()) {
 			const auto context = Core::TextContext({
 				.session = session,
@@ -321,7 +322,7 @@ not_null<Ui::RpWidget*> AddChatFiltersTabsStrip(
 					if (x >= left && x < right) {
 						const auto &list
 							= session->data().chatsFilters().list();
-						return (i < list.size() && !list[i].localAdmins())
+						return (i < list.size() && !list[i].isLocalRoleFilter())
 							? std::optional<FilterId>(list[i].id())
 							: std::nullopt;
 					}
@@ -421,9 +422,14 @@ not_null<Ui::RpWidget*> AddChatFiltersTabsStrip(
 			const auto maxLimit = (reorderAll ? 1 : 0)
 				+ Data::PremiumLimits(session).dialogFiltersCurrent();
 			const auto premiumFrom = (reorderAll ? 0 : 1) + maxLimit;
-			slider->setLockedFrom((premiumFrom >= list.size())
+			const auto localCount = int(ranges::count_if(
+				list,
+				&Data::ChatFilter::isLocalRoleFilter));
+			const auto localFrom = int(list.size()) - localCount;
+			slider->setLockedFrom((premiumFrom >= localFrom)
 				? 0
 				: premiumFrom);
+			slider->setLockedUntil(localFrom);
 			slider->lockedClicked() | rpl::on_next([=] {
 				controller->show(Box(FiltersLimitBox, session, std::nullopt));
 			}, state->rebuildLifetime);
@@ -433,13 +439,13 @@ not_null<Ui::RpWidget*> AddChatFiltersTabsStrip(
 				if (!reorderAll) {
 					state->reorder->addPinnedInterval(0, 1);
 				}
-				state->reorder->addPinnedInterval(
-					premiumFrom,
-					std::max(1, int(list.size()) - maxLimit));
-				if (!list.empty() && list.back().localAdmins()) {
+				if (premiumFrom < localFrom) {
 					state->reorder->addPinnedInterval(
-						int(list.size()) - 1,
-						1);
+						premiumFrom,
+						localFrom - premiumFrom);
+				}
+				if (localCount) {
+					state->reorder->addPinnedInterval(localFrom, localCount);
 				}
 			}
 		}
@@ -566,15 +572,21 @@ not_null<Ui::RpWidget*> AddChatFiltersTabsStrip(
 					|| (request.action == Qt::Key_Backtab));
 		}) | rpl::on_next([=](const Shortcuts::ChatSwitchRequest &request) {
 			const auto count = slider->sectionsCount();
-			const auto locked = slider->lockedFrom();
-			const auto limit = locked ? locked : count;
-			if (limit <= 1) {
+			if (count <= 1) {
 				return;
 			}
 			const auto back = (request.action == Qt::Key_Backtab);
-			const auto current = std::min(slider->activeSection(), limit - 1);
-			const auto next = (current + (back ? -1 : 1) + limit) % limit;
-			slider->setActiveSection(next);
+			const auto current = std::max(0, slider->activeSection());
+			for (auto step = 1; step < count; ++step) {
+				const auto next = (current + (back ? -step : step) + count)
+					% count;
+				const auto from = slider->lockedFrom();
+				const auto until = slider->lockedUntil();
+				if (!from || next < from || (until && next >= until)) {
+					slider->setActiveSection(next);
+					break;
+				}
+			}
 		}, wrap->lifetime());
 	}
 

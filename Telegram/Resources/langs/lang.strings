@@ -9301,3 +9301,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_accountbank_peer_id_group" = "ID группы Telegram: ";
 "lng_accountbank_peer_id_channel" = "ID канала Telegram: ";
 "lng_accountbank_settings_ignored_unnamed" = "Пользователь без имени";
+"lng_accountbank_admin_groups_folder" = "Админ в чатах";
+"lng_accountbank_admin_channels_folder" = "Админ в каналах";
+"lng_accountbank_owner_groups_folder" = "Владелец чатов";
+"lng_accountbank_owner_channels_folder" = "Владелец каналов";
+"lng_accountbank_role_folders_help" = "В списке чатов появятся четыре локальные вкладки: администратор и владелец чатов и каналов. Они не занимают облачный лимит папок.";

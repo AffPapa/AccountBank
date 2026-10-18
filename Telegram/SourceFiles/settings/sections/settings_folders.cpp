@@ -542,7 +542,7 @@ not_null<Ui::VerticalLayout*> SetupFoldersList(
 	};
 	const auto &list = session->data().chatsFilters().list();
 	for (const auto &filter : list) {
-		if (filter.id() && !filter.localAdmins()) {
+		if (filter.id() && !filter.isLocalRoleFilter()) {
 			addFilter(filter);
 		}
 	}

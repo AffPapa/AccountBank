@@ -146,6 +146,7 @@ void ChatsFiltersTabs::fitWidthToSections() {
 	SettingsSlider::fitWidthToSections();
 
 	_lockedFromX = calculateLockedFromX();
+	_lockedUntilX = calculateLockedUntilX();
 
 	{
 		_sections.clear();
@@ -200,6 +201,25 @@ int ChatsFiltersTabs::calculateLockedFromX() const {
 	return left ? left : std::numeric_limits<int>::max();
 }
 
+int ChatsFiltersTabs::calculateLockedUntilX() const {
+	if (!_lockedUntil) {
+		return std::numeric_limits<int>::max();
+	}
+	auto left = 0;
+	auto index = 0;
+	auto found = false;
+	enumerateSections([&](const Section &section) {
+		if (index == _lockedUntil) {
+			found = true;
+			return false;
+		}
+		left = section.left + section.width;
+		++index;
+		return true;
+	});
+	return found ? left : std::numeric_limits<int>::max();
+}
+
 void ChatsFiltersTabs::setLockedFrom(int index) {
 	_lockedFrom = index;
 	_lockedFromX = calculateLockedFromX();
@@ -211,6 +231,12 @@ void ChatsFiltersTabs::setLockedFrom(int index) {
 	) | rpl::on_next([this] {
 		_lockCache.emplace(Ui::SideBarLockIcon(_st.labelFg));
 	});
+}
+
+void ChatsFiltersTabs::setLockedUntil(int index) {
+	_lockedUntil = index;
+	_lockedUntilX = calculateLockedUntilX();
+	update();
 }
 
 QImage ChatsFiltersTabs::cacheUnreadCount(int count, bool muted) const {
@@ -288,7 +314,8 @@ void ChatsFiltersTabs::paintEvent(QPaintEvent *e) {
 			section.contentWidth,
 			_st.labelStyle.font->height);
 		if (rect.intersects(clip)) {
-			const auto locked = (_lockedFrom && (index >= _lockedFrom));
+			const auto locked = (_lockedFrom && (index >= _lockedFrom)
+				&& (!_lockedUntil || index < _lockedUntil));
 			if (locked) {
 				constexpr auto kPremiumLockedOpacity = 0.6;
 				p.setOpacity(kPremiumLockedOpacity);
@@ -378,7 +405,8 @@ void ChatsFiltersTabs::paintEvent(QPaintEvent *e) {
 void ChatsFiltersTabs::mousePressEvent(QMouseEvent *e) {
 	const auto mouseButton = e->button();
 	if (mouseButton == Qt::MouseButton::LeftButton) {
-		_lockedPressed = (e->pos().x() >= _lockedFromX);
+		_lockedPressed = (e->pos().x() >= _lockedFromX)
+			&& (e->pos().x() < _lockedUntilX);
 		if (_lockedPressed) {
 			Ui::RpWidget::mousePressEvent(e);
 		} else {
@@ -421,7 +449,7 @@ void ChatsFiltersTabs::mouseReleaseEvent(QMouseEvent *e) {
 
 void ChatsFiltersTabs::contextMenuEvent(QContextMenuEvent *e) {
 	const auto pos = e->pos();
-	if (pos.x() >= _lockedFromX) {
+	if (pos.x() >= _lockedFromX && pos.x() < _lockedUntilX) {
 		return;
 	}
 	auto left = 0;

@@ -17,7 +17,6 @@ void ShowAccountBankArchiveHome(not_null<SessionController*> controller);
 void ShowAccountBankArchive(
 	not_null<SessionController*> controller,
 	const QString &kind);
-void ShowAccountBankAdminChats(not_null<SessionController*> controller);
 void ShowAccountBankMessageFilterBox(
 	not_null<SessionController*> controller);
 void ExportAccountBankArchive(not_null<SessionController*> controller);

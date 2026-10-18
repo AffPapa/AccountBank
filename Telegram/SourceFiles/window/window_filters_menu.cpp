@@ -223,7 +223,7 @@ void FiltersMenu::setupDragAndDrop() {
 						list,
 						id,
 						&Data::ChatFilter::id);
-					return (i != end(list) && i->localAdmins())
+					return (i != end(list) && i->isLocalRoleFilter())
 						? std::nullopt
 						: std::optional<FilterId>(id);
 				}
@@ -369,14 +369,19 @@ void FiltersMenu::refresh() {
 	const auto maxLimit = (reorderAll ? 1 : 0)
 		+ Data::PremiumLimits(&_session->session()).dialogFiltersCurrent();
 	const auto premiumFrom = (reorderAll ? 0 : 1) + maxLimit;
+	const auto &list = filters->list();
+	const auto localCount = int(ranges::count_if(
+		list,
+		&Data::ChatFilter::isLocalRoleFilter));
+	const auto localFrom = int(list.size()) - localCount;
 	if (!reorderAll) {
 		_reorder->addPinnedInterval(0, 1);
 	}
-	_reorder->addPinnedInterval(
-		premiumFrom,
-		std::max(1, int(filters->list().size()) - maxLimit));
-	if (!filters->list().empty() && filters->list().back().localAdmins()) {
-		_reorder->addPinnedInterval(int(filters->list().size()) - 1, 1);
+	if (premiumFrom < localFrom) {
+		_reorder->addPinnedInterval(premiumFrom, localFrom - premiumFrom);
+	}
+	if (localCount) {
+		_reorder->addPinnedInterval(localFrom, localCount);
 	}
 
 	// Remember which folder holds keyboard focus so the roving Tab-stop can be
@@ -393,8 +398,9 @@ void FiltersMenu::refresh() {
 
 	auto now = base::flat_map<int, base::unique_qptr<Ui::SideBarButton>>();
 	const auto &currentFilter = _session->activeChatsFilterCurrent();
-	for (const auto &filter : filters->list()) {
-		const auto nextIsLocked = (now.size() >= premiumFrom);
+	for (const auto &filter : list) {
+		const auto nextIsLocked = (now.size() >= premiumFrom)
+			&& !filter.isLocalRoleFilter();
 		if (nextIsLocked && (currentFilter == filter.id())) {
 			_session->setActiveChatsFilter(FilterId(0));
 		}
@@ -769,7 +775,7 @@ void FiltersMenu::showMenu(QPoint position, FilterId id) {
 	const auto addAction = Ui::Menu::CreateAddActionCallback(_popupMenu);
 	const auto &list = _session->session().data().chatsFilters().list();
 	const auto entry = ranges::find(list, id, &Data::ChatFilter::id);
-	const auto local = (entry != end(list)) && entry->localAdmins();
+	const auto local = (entry != end(list)) && entry->isLocalRoleFilter();
 	if (id && !local) {
 		addAction(
 			tr::lng_filters_context_edit(tr::now),

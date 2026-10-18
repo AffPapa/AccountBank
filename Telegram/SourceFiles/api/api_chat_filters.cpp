@@ -874,7 +874,7 @@ void SaveNewFilterPinned(
 	auto &filters = session->data().chatsFilters();
 	const auto &list = filters.list();
 	const auto i = ranges::find(list, filterId, &Data::ChatFilter::id);
-	if (i != end(list) && i->localAdmins()) {
+	if (i != end(list) && i->isLocalRoleFilter()) {
 		return;
 	}
 	const auto &filter = filters.applyUpdatedPinned(filterId, order);
