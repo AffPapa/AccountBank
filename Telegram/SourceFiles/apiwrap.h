@@ -420,6 +420,12 @@ public:
 	void sendCopyOfItem(
 		not_null<HistoryItem*> item,
 		const SendAction &action);
+	void finishCopyUpload(class CopyUpload *state);
+	void tickCopyUploads();
+
+	struct CopyUpload;
+	std::vector<std::unique_ptr<CopyUpload>> _copyUploads;
+	base::Timer _copyUploadsTimer;
 	void sendBotStart(
 		std::shared_ptr<Ui::Show> show,
 		not_null<UserData*> bot,

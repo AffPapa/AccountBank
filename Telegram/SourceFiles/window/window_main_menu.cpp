@@ -470,7 +470,7 @@ void OpenAccountBankCloudForum(
 		channel->setAccessHash(archive.legacyCloudAccessHash());
 		session.api().requestFullPeer(channel);
 		controller->showPeerHistory(channel);
-	} else if (!archive.ensureCloudForum()) {
+	} else if (!archive.ensureCloudForum() && !archive.cloudForumId()) {
 		controller->showToast(tr::lng_accountbank_cloud_failed(tr::now));
 	} else if (const auto id = archive.cloudForumId()) {
 		const auto channel = session.data().channel(ChannelId(id));

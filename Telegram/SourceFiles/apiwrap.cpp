@@ -42,6 +42,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "api/api_user_names.h"
 #include "api/api_websites.h"
 #include "chat_helpers/text_replacements.h"
+#include "data/data_photo_media.h"
+#include "data/data_document_media.h"
+#include "storage/storage_media_prepare.h"
+#include "styles/style_boxes.h"
 #include "data/business/data_shortcut_messages.h"
 #include "data/components/credits.h"
 #include "data/components/ephemeral_messages.h"
@@ -113,6 +117,21 @@ namespace {
 
 // Save draft to the cloud with 1 sec extra delay.
 constexpr auto kSaveCloudDraftTimeout = 1000;
+constexpr auto kCopyUploadTick = crl::time(500);
+constexpr auto kCopyUploadMaxTries = 120;
+
+[[nodiscard]] QString CopyUploadTempPath(DocumentData *document) {
+	auto extension = document
+		? QFileInfo(document->filename()).suffix()
+		: u"jpg"_q;
+	if (extension.isEmpty()) {
+		extension = u"dat"_q;
+	}
+	return QDir::temp().filePath(
+		u"accountbank_copy_%1.%2"_q
+			.arg(base::RandomValue<uint32>(), 16, 16, QChar('0'))
+			.arg(extension));
+}
 
 constexpr auto kSmallDelayMs = 5;
 constexpr auto kDeleteHistoryRetryLimit = 8;
@@ -201,6 +220,7 @@ ApiWrap::ApiWrap(not_null<Main::Session*> session)
 , _messageDataResolveDelayed([=] { resolveMessageDatas(); })
 , _webPagesTimer([=] { resolveWebPages(); })
 , _draftsSaveTimer([=] { saveDraftsToCloud(); })
+, _copyUploadsTimer([=] { tickCopyUploads(); })
 , _featuredSetsReadTimer([=] { readFeaturedSets(); })
 , _dialogsLoadState(std::make_unique<DialogsLoadState>())
 , _fileLoader(std::make_unique<TaskQueue>(kFileLoaderQueueStopTimeout))
@@ -4182,6 +4202,21 @@ void ApiWrap::forwardMessagesAsCopies(
 	}
 }
 
+struct ApiWrap::CopyUpload {
+	explicit CopyUpload(const SendAction &send)
+	: action(send) {
+	}
+
+	FullMsgId id;
+	SendAction action;
+	TextWithEntities caption;
+	std::shared_ptr<Data::PhotoMedia> photo;
+	std::shared_ptr<Data::DocumentMedia> document;
+	QString documentPath;
+	QString tempPath;
+	int tries = 0;
+};
+
 void ApiWrap::sendCopyOfItem(
 		not_null<HistoryItem*> item,
 		const SendAction &action) {
@@ -4191,27 +4226,101 @@ void ApiWrap::sendCopyOfItem(
 	const auto photo = media ? media->photo() : nullptr;
 	const auto document = media ? media->document() : nullptr;
 	const auto ttl = media ? media->ttlSeconds() : crl::time();
-	auto message = MessageToSend(action);
-	message.textWithTags = TextWithTags{
-		caption.text,
-		TextUtilities::ConvertEntitiesToTextTags(caption.entities),
-	};
-	message.action.clearDraft = false;
-	message.action.generateLocal = true;
-	if (!ttl && photo) {
-		Api::SendExistingPhoto(
-			std::move(message),
-			photo,
-			std::nullopt,
-			item->fullId());
-	} else if (!ttl && document) {
-		Api::SendExistingDocument(
-			std::move(message),
-			document,
-			std::nullopt,
-			item->fullId());
+	const auto origin = item->fullId();
+	if (!ttl && (photo || document)) {
+		auto state = std::make_unique<CopyUpload>(action);
+		state->id = origin;
+		state->action = action;
+		state->action.clearDraft = false;
+		state->caption = std::move(caption);
+		if (photo) {
+			state->photo = photo->createMediaView();
+			photo->load(origin, LoadFromCloudOrLocal, true);
+		} else {
+			state->document = document->createMediaView();
+			if (state->document->bytes().isEmpty()) {
+				state->documentPath = CopyUploadTempPath(document);
+				document->save(origin, state->documentPath);
+			}
+		}
+		_copyUploads.push_back(std::move(state));
+		_copyUploadsTimer.callOnce(kCopyUploadTick);
 	} else if (!caption.text.isEmpty()) {
+		auto message = MessageToSend(action);
+		message.textWithTags = TextWithTags{
+			caption.text,
+			TextUtilities::ConvertEntitiesToTextTags(caption.entities),
+		};
+		message.action.clearDraft = false;
+		message.action.generateLocal = true;
 		sendMessage(std::move(message));
+	}
+}
+
+void ApiWrap::tickCopyUploads() {
+	for (auto &state : base::take(_copyUploads)) {
+		if (++state->tries > kCopyUploadMaxTries) {
+			LOG(("Copy upload: gave up on a message copy."));
+			continue;
+		}
+		auto path = QString();
+		if (state->photo) {
+			if (state->tempPath.isEmpty()) {
+				state->tempPath = CopyUploadTempPath(nullptr);
+			}
+			path = state->tempPath;
+		} else if (!state->documentPath.isEmpty()) {
+			path = state->documentPath;
+		} else if (state->document && !state->document->bytes().isEmpty()) {
+			state->documentPath = CopyUploadTempPath(nullptr);
+			path = state->documentPath;
+		}
+		auto ready = false;
+		if (!path.isEmpty() && state->photo) {
+			ready = state->photo->loaded()
+				&& state->photo->saveToFile(path);
+		} else if (!path.isEmpty() && state->document) {
+			if (!state->documentPath.isEmpty()) {
+				ready = QFile::exists(path)
+					&& QFileInfo(path).size() > 0
+					&& !state->document->owner()->loading();
+			} else {
+				auto file = QFile(path);
+				if (file.open(QIODevice::WriteOnly)) {
+					file.write(state->document->bytes());
+					ready = true;
+				}
+			}
+		}
+		if (ready) {
+			auto list = Storage::PrepareMediaList(
+				QStringList{ path },
+				st::sendMediaPreviewSize,
+				false);
+			if (list.files.empty()) {
+				LOG(("Copy upload: media could not be prepared."));
+				QFile(path).remove();
+				continue;
+			}
+			list.files.front().caption = TextWithTags{
+				state->caption.text,
+				TextUtilities::ConvertEntitiesToTextTags(
+					state->caption.entities),
+			};
+			auto sendAction = state->action;
+			sendAction.generateLocal = true;
+			sendFiles(
+				std::move(list),
+				state->photo ? SendMediaType::Photo : SendMediaType::File,
+				nullptr,
+				sendAction);
+			QFile(path).remove();
+		} else {
+			_copyUploads.push_back(std::move(state));
+		}
+	}
+	if (!_copyUploads.empty()) {
+		_copyUploadsTimer.callOnce(kCopyUploadTick);
 	}
 }
 

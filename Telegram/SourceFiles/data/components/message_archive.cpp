@@ -1103,8 +1103,8 @@ bool ExportArchive(
 			sqlite3_column_bytes(stmt, 2));
 		const auto plain = DecryptRecord(key, nonce, tag, data);
 		if (plain.isEmpty()) {
-			LOG(("Archive: export stopped at a corrupted record."));
-			return false;
+			LOG(("Archive: export skipped a corrupted record."));
+			continue;
 		}
 		if ((!first && !write(",")) || !write(plain)) {
 			return false;
