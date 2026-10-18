@@ -19,6 +19,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "boxes/premium_preview_box.h"
 #include "calls/calls_instance.h"
 #include "core/application.h"
+#include "core/core_settings.h"
 #include "core/click_handler_types.h"
 #include "core/core_screenshot_protection.h"
 #include "core/file_utilities.h"
@@ -6237,6 +6238,9 @@ void OverlayWidget::setSystemMediaControls(
 }
 
 bool OverlayWidget::contentNeedsScreenshotProtection() const {
+	if (Core::App().settings().allowCopyRestricted()) {
+		return false;
+	}
 	if (const auto story = _stories ? _stories->story() : nullptr) {
 		return story->forbidsForward();
 	}
