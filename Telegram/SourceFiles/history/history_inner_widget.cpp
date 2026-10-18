@@ -3842,7 +3842,8 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 		HistoryView::AddSelectRestrictionAction(
 			_menu,
 			textItem ? textItem : _dragStateItem,
-			!added);
+			!added,
+			_controller);
 	}
 	if (hasWhoReactedItem) {
 		HistoryView::AddWhoReactedAction(

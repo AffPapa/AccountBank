@@ -2141,7 +2141,11 @@ void FillContextMenuItems(
 	}
 	if (item) {
 		const auto added = (result->actions().size() > wasAmount);
-		AddSelectRestrictionAction(result, item, !added);
+		AddSelectRestrictionAction(
+			result,
+			item,
+			!added,
+			list->controller());
 	}
 	if (!skipWhoReacted) {
 		if (hasWhoReactedItem) {
@@ -3141,7 +3145,8 @@ void AddEmojiPacksAction(
 void AddSelectRestrictionAction(
 		not_null<Ui::PopupMenu*> menu,
 		not_null<HistoryItem*> item,
-		bool addIcon) {
+		bool addIcon,
+		not_null<Window::SessionController*> controller) {
 	const auto peer = item->history()->peer;
 	if ((peer->allowsForwarding() && !item->forbidsForward())
 		|| item->isSponsored()) {
@@ -3176,6 +3181,46 @@ void AddSelectRestrictionAction(
 		(addIcon && !user) ? &st::menuIconCopyright : nullptr);
 	button->setAttribute(Qt::WA_TransparentForMouseEvents);
 	menu->addAction(std::move(button));
+	if (user
+		&& !user->isBot()
+		&& !user->isServiceUser()
+		&& !user->isSelf()
+		&& !user->allowsForwarding()) {
+		menu->addAction(tr::lng_enable_sharing(tr::now), [=] {
+			const auto sendRequest = [=] {
+				using Flag = MTPmessages_ToggleNoForwards::Flag;
+				peer->session().api().request(MTPmessages_ToggleNoForwards(
+					MTP_flags(Flag()),
+					peer->input(),
+					MTP_bool(false),
+					MTPint()
+				)).done([=](const MTPUpdates &result) {
+					peer->session().api().applyUpdates(result);
+				}).fail([=](const MTP::Error &error) {
+					if (error.type() != u"CHAT_NOT_MODIFIED"_q) {
+						controller->showToast(error.type());
+					}
+				}).send();
+			};
+			if (user->flags() & UserDataFlag::NoForwardsPeerEnabled) {
+				controller->show(Ui::MakeConfirmBox({
+					.text = tr::lng_enable_sharing_request_text(
+						tr::now,
+						lt_name,
+						tr::marked(user->shortName()),
+						tr::rich),
+					.confirmed = [=](Fn<void()> close) {
+						sendRequest();
+						close();
+					},
+					.confirmText = tr::lng_enable_sharing_request_button(),
+					.title = tr::lng_enable_sharing_request_title(),
+				}));
+			} else {
+				sendRequest();
+			}
+		}, &st::menuIconShareOn);
+	}
 }
 
 void AddEphemeralMessageActions(

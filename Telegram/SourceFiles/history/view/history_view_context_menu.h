@@ -172,7 +172,8 @@ void AddEmojiPacksAction(
 void AddSelectRestrictionAction(
 	not_null<Ui::PopupMenu*> menu,
 	not_null<HistoryItem*> item,
-	bool addIcon);
+	bool addIcon,
+	not_null<Window::SessionController*> controller);
 void AddEphemeralMessageActions(
 	not_null<Ui::PopupMenu*> menu,
 	std::shared_ptr<Ui::Show> show,
