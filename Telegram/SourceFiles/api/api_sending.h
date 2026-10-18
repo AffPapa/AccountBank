@@ -38,7 +38,8 @@ struct MusicSelectionItem {
 void SendExistingDocument(
 	MessageToSend &&message,
 	not_null<DocumentData*> document,
-	std::optional<MsgId> localMessageId = std::nullopt);
+	std::optional<MsgId> localMessageId = std::nullopt,
+	std::optional<Data::FileOrigin> origin = std::nullopt);
 
 void SendMusicSelection(
 	MessageToSend &&message,
@@ -47,7 +48,8 @@ void SendMusicSelection(
 void SendExistingPhoto(
 	MessageToSend &&message,
 	not_null<PhotoData*> photo,
-	std::optional<MsgId> localMessageId = std::nullopt);
+	std::optional<MsgId> localMessageId = std::nullopt,
+	std::optional<Data::FileOrigin> origin = std::nullopt);
 
 bool SendDice(MessageToSend &message);
 

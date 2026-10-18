@@ -4199,9 +4199,17 @@ void ApiWrap::sendCopyOfItem(
 	message.action.clearDraft = false;
 	message.action.generateLocal = true;
 	if (!ttl && photo) {
-		Api::SendExistingPhoto(std::move(message), photo);
+		Api::SendExistingPhoto(
+			std::move(message),
+			photo,
+			std::nullopt,
+			item->fullId());
 	} else if (!ttl && document) {
-		Api::SendExistingDocument(std::move(message), document);
+		Api::SendExistingDocument(
+			std::move(message),
+			document,
+			std::nullopt,
+			item->fullId());
 	} else if (!caption.text.isEmpty()) {
 		sendMessage(std::move(message));
 	}

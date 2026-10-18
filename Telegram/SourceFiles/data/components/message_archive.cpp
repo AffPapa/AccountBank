@@ -1249,6 +1249,30 @@ bool MessageArchive::saveCloudDestination(
 	return saved;
 }
 
+void MessageArchive::clearCloudDestination(const char *name) {
+	if (!ensureOpened() || _broken) {
+		return;
+	}
+	auto *stmt = static_cast<sqlite3_stmt*>(nullptr);
+	if (sqlite3_prepare_v2(_db,
+			"DELETE FROM cloud_config WHERE key=?",
+			-1,
+			&stmt,
+			nullptr) != SQLITE_OK) {
+		return;
+	}
+	sqlite3_bind_text(stmt, 1, name, -1, SQLITE_STATIC);
+	sqlite3_step(stmt);
+	sqlite3_finalize(stmt);
+	if (QString::fromLatin1(name) == u"forum"_q) {
+		_cloudForumId = 0;
+		_cloudForumAccessHash = 0;
+	} else if (QString::fromLatin1(name) == u"channel"_q) {
+		_legacyChannelId = 0;
+		_legacyAccessHash = 0;
+	}
+}
+
 MessageArchive::TopicState MessageArchive::loadCloudTopic(
 		const QString &peer) {
 	const auto key = HmacSha256(
@@ -1395,6 +1419,11 @@ bool MessageArchive::ensureCloudForum() {
 		_mirrorTimer.callOnce(CloudTimerDelay(
 			_mirrorPausedUntil - QDateTime::currentMSecsSinceEpoch()));
 		return true;
+	}
+	if (_cloudForumId
+		&& !_owner->session().data().peerLoaded(
+			peerFromChannel(ChannelId(_cloudForumId)))) {
+		clearCloudDestination("forum");
 	}
 	if (!_cloudForumId && !_mirrorRequestActive) {
 		createCloudForum();
@@ -1550,9 +1579,15 @@ void MessageArchive::recoverCloudForum(
 			for (const auto &chat : data.vchats().v) {
 				if (chat.type() != mtpc_channel) continue;
 				const auto &channel = chat.c_channel();
-				if (channel.is_forum()
-					&& channel.is_megagroup()
-					&& qs(channel.vtitle()) == title) {
+				if (!channel.is_forum() || !channel.is_megagroup()) {
+					continue;
+				}
+				// WHY: older copies may carry a different marker suffix,
+				// so any archive group is adopted instead of creating a new one.
+				const auto channelTitle = qs(channel.vtitle());
+				if (channelTitle == title
+					|| channelTitle.startsWith(
+						u"Архив AccountBank · копия"_q)) {
 					id = channel.vid().v;
 					hash = channel.vaccess_hash().value_or_empty();
 					break;
@@ -1997,6 +2032,11 @@ void MessageArchive::sendCloudSnapshot() {
 		_mirrorRequestActive = false;
 		if (error.type() == u"RANDOM_ID_DUPLICATE"_q) {
 			markCloudSent(key);
+		} else if (!legacy && error.type() == u"PEER_ID_INVALID"_q) {
+			// The saved forum no longer resolves for this account: forget it
+			// and let the next cycle recover one of the existing archive groups.
+			clearCloudDestination("forum");
+			_mirrorTimer.callOnce(crl::time(1000));
 		} else {
 			if (!legacy && error.type() == u"TOPIC_DELETED"_q) {
 				auto topic = loadCloudTopic(

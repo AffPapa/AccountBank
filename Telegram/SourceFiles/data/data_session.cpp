@@ -3063,29 +3063,38 @@ void Session::updateEditedMessage(const MTPMessage &data) {
 	if (data.type() == mtpc_message) {
 		const auto &edited = data.c_message();
 		const auto peer = peerFromMTP(edited.vpeer_id());
-		auto afterPhoto = QString();
-		auto afterDocument = QString();
-		if (const auto media = edited.vmedia()) {
-			if (media->type() == mtpc_messageMediaPhoto) {
-				const auto photo = media->c_messageMediaPhoto().vphoto();
-				if (photo && photo->type() == mtpc_photo) {
-					afterPhoto = QString::number(photo->c_photo().vid().v);
-				}
-			} else if (media->type() == mtpc_messageMediaDocument) {
-				const auto document = media->c_messageMediaDocument().vdocument();
-				if (document && document->type() == mtpc_document) {
-					afterDocument = QString::number(document->c_document().vid().v);
+		const auto duplicate = existing
+			&& (existing->originalText().text == qs(edited.vmessage()))
+			&& edited.vedit_date()
+			&& existing->Get<HistoryMessageEdited>()
+			&& existing->Get<HistoryMessageEdited>()->date
+				== edited.vedit_date()->v;
+		if (!duplicate) {
+			auto afterPhoto = QString();
+			auto afterDocument = QString();
+			if (const auto media = edited.vmedia()) {
+				if (media->type() == mtpc_messageMediaPhoto) {
+					const auto photo = media->c_messageMediaPhoto().vphoto();
+					if (photo && photo->type() == mtpc_photo) {
+						afterPhoto = QString::number(photo->c_photo().vid().v);
+					}
+				} else if (media->type() == mtpc_messageMediaDocument) {
+					const auto document = media->c_messageMediaDocument().vdocument();
+					if (document && document->type() == mtpc_document) {
+						afterDocument = QString::number(
+							document->c_document().vid().v);
+					}
 				}
 			}
+			_archive->logEditTransition(
+				existing,
+				QString::number(peer.value),
+				QString::number(edited.vid().v),
+				qs(edited.vmessage()),
+				afterPhoto,
+				afterDocument,
+				!peerIsChannel(peer));
 		}
-		_archive->logEditTransition(
-			existing,
-			QString::number(peer.value),
-			QString::number(edited.vid().v),
-			qs(edited.vmessage()),
-			afterPhoto,
-			afterDocument,
-			!peerIsChannel(peer));
 	}
 	if (!existing) {
 		Reactions::CheckUnknownForUnread(this, data);

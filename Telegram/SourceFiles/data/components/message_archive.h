@@ -131,6 +131,7 @@ private:
 		const char *name,
 		uint64 id,
 		uint64 accessHash);
+	void clearCloudDestination(const char *name);
 	void loadCloudDestinations();
 	struct TopicState {
 		int id = 0;

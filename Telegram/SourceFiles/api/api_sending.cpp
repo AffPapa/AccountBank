@@ -701,7 +701,8 @@ void SendMusicSelectionBatch(
 void SendExistingDocument(
 		MessageToSend &&message,
 		not_null<DocumentData*> document,
-		std::optional<MsgId> localMessageId) {
+		std::optional<MsgId> localMessageId,
+		std::optional<Data::FileOrigin> origin) {
 	const auto inputMedia = [=] {
 		return MTP_inputMediaDocument(
 			MTP_flags(message.action.options.mediaSpoiler
@@ -717,7 +718,7 @@ void SendExistingDocument(
 		std::move(message),
 		document,
 		inputMedia,
-		document->stickerOrGifOrigin(),
+		origin ? *origin : document->stickerOrGifOrigin(),
 		std::move(localMessageId));
 
 	if (document->sticker()) {
@@ -783,7 +784,8 @@ void SendMusicSelection(
 void SendExistingPhoto(
 		MessageToSend &&message,
 		not_null<PhotoData*> photo,
-		std::optional<MsgId> localMessageId) {
+		std::optional<MsgId> localMessageId,
+		std::optional<Data::FileOrigin> origin) {
 	const auto inputMedia = [=] {
 		return MTP_inputMediaPhoto(
 			MTP_flags(0),
@@ -795,7 +797,7 @@ void SendExistingPhoto(
 		std::move(message),
 		photo,
 		inputMedia,
-		Data::FileOrigin(),
+		origin ? *origin : Data::FileOrigin(),
 		std::move(localMessageId));
 }
 
