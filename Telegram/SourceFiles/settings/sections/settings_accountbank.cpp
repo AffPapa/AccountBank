@@ -12,6 +12,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/core_settings.h"
 #include "data/components/message_archive.h"
 #include "data/data_session.h"
+#include "data/data_user.h"
 #include "lang/lang_keys.h"
 #include "main/main_session.h"
 #include "main/main_account.h"
@@ -20,16 +21,69 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "settings/settings_builder.h"
 #include "ui/layers/generic_box.h"
 #include "ui/vertical_list.h"
+#include "ui/widgets/buttons.h"
 #include "ui/widgets/checkbox.h"
+#include "ui/widgets/labels.h"
 #include "window/window_accountbank_actions.h"
 #include "window/window_session_controller.h"
+#include "styles/style_boxes.h"
 #include "styles/style_menu_icons.h"
 #include "styles/style_settings.h"
+
+#include <QSet>
 
 namespace Settings {
 namespace {
 
 using namespace Builder;
+
+void ShowIgnoredUsersBox(
+		not_null<Ui::GenericBox*> box,
+		not_null<Window::SessionController*> controller) {
+	box->setTitle(tr::lng_accountbank_settings_ignored_users());
+	box->addRow(object_ptr<Ui::FlatLabel>(
+		box,
+		tr::lng_accountbank_settings_ignored_help(),
+		st::aboutLabel));
+	const auto raw = Core::App().settings().ignoredUsers();
+	auto shown = QSet<quint64>();
+	for (const auto &part : raw.split(',')) {
+		auto ok = false;
+		const auto id = part.toULongLong(&ok);
+		if (!ok || !id || shown.contains(id)) {
+			continue;
+		}
+		shown.insert(id);
+		const auto user = controller->session().data().userLoaded(UserId(id));
+		const auto loadedName = user ? user->name() : QString();
+		const auto name = !loadedName.isEmpty()
+			? loadedName
+			: tr::lng_accountbank_settings_ignored_unknown(
+				tr::now,
+				lt_id,
+				QString::number(id));
+		const auto remove = box->addRow(object_ptr<Ui::LinkButton>(
+			box,
+			tr::lng_accountbank_settings_ignored_remove(
+				tr::now,
+				lt_name,
+				name),
+			st::aboutVersionLink));
+		remove->setClickedCallback([=] {
+			auto parts = Core::App().settings().ignoredUsers().split(',');
+			parts.removeAll(QByteArray::number(id));
+			Core::App().settings().setIgnoredUsers(parts.join(','));
+			box->closeBox();
+		});
+	}
+	if (shown.isEmpty()) {
+		box->addRow(object_ptr<Ui::FlatLabel>(
+			box,
+			tr::lng_accountbank_settings_ignored_empty(),
+			st::aboutLabel));
+	}
+	box->addButton(tr::lng_close(), [=] { box->closeBox(); });
+}
 
 void AddPreference(
 		SectionBuilder &builder,
@@ -56,7 +110,6 @@ void AddPreference(
 			defaultValue);
 	}) | rpl::on_next([=](bool value) {
 		Core::App().settings().writePref<bool>(key, value);
-		Core::App().saveSettingsDelayed();
 		if (refreshUnread) {
 			for (const auto &[index, account]
 					: Core::App().domain().accounts()) {
@@ -95,10 +148,14 @@ void BuildAccountBankContent(SectionBuilder &builder) {
 	AddPreference(builder, u"accountbank/keep-deleted"_q,
 		tr::lng_accountbank_settings_keep_deleted(), "keep-deleted", true);
 	builder.addDividerText(tr::lng_accountbank_keep_deleted_help());
+	builder.addSubsectionTitle({
+		.id = u"accountbank/local-archive"_q,
+		.title = tr::lng_accountbank_settings_local_archive(),
+	});
 	builder.addButton({
 		.id = u"accountbank/deleted-archive"_q,
 		.title = tr::lng_accountbank_deleted_archive(),
-		.icon = { &st::menuIconSavedMessages },
+		.icon = { &st::menuIconDelete },
 		.onClick = [=] {
 			Window::ShowAccountBankArchive(controller, u"delete"_q);
 		},
@@ -106,7 +163,7 @@ void BuildAccountBankContent(SectionBuilder &builder) {
 	builder.addButton({
 		.id = u"accountbank/edited-archive"_q,
 		.title = tr::lng_accountbank_edited_archive(),
-		.icon = { &st::menuIconSavedMessages },
+		.icon = { &st::menuIconEdit },
 		.onClick = [=] {
 			Window::ShowAccountBankArchive(controller, u"edit"_q);
 		},
@@ -114,7 +171,7 @@ void BuildAccountBankContent(SectionBuilder &builder) {
 	builder.addButton({
 		.id = u"accountbank/ttl-archive"_q,
 		.title = tr::lng_accountbank_ttl_archive(),
-		.icon = { &st::menuIconSavedMessages },
+		.icon = { &st::menuIconPhoto },
 		.onClick = [=] {
 			Window::ShowAccountBankArchive(controller, u"saved_ttl_photo"_q);
 		},
@@ -122,15 +179,19 @@ void BuildAccountBankContent(SectionBuilder &builder) {
 	builder.addButton({
 		.id = u"accountbank/stories-archive"_q,
 		.title = tr::lng_accountbank_stories_archive(),
-		.icon = { &st::menuIconSavedMessages },
+		.icon = { &st::menuIconStoriesSavedSection },
 		.onClick = [=] {
 			Window::ShowAccountBankArchive(controller, u"saved_story"_q);
 		},
 	});
+	builder.addSubsectionTitle({
+		.id = u"accountbank/cloud-and-export"_q,
+		.title = tr::lng_accountbank_settings_cloud_export(),
+	});
 	builder.addButton({
 		.id = u"accountbank/cloud-archive"_q,
 		.title = tr::lng_accountbank_cloud_archive(),
-		.icon = { &st::menuIconSavedMessages },
+		.icon = { &st::menuIconArchive },
 		.onClick = [=] {
 			Window::OpenAccountBankCloudForum(controller);
 		},
@@ -140,7 +201,7 @@ void BuildAccountBankContent(SectionBuilder &builder) {
 		builder.addButton({
 			.id = u"accountbank/legacy-cloud-archive"_q,
 			.title = tr::lng_accountbank_cloud_legacy(),
-			.icon = { &st::menuIconSavedMessages },
+			.icon = { &st::menuIconArchiveOpen },
 			.onClick = [=] {
 				Window::OpenAccountBankCloudForum(controller, true);
 			},
@@ -169,11 +230,13 @@ void BuildAccountBankContent(SectionBuilder &builder) {
 		tr::lng_accountbank_time_seconds(), "accountbank-time-seconds");
 	AddPreference(builder, u"accountbank/service-time"_q,
 		tr::lng_accountbank_service_time(), "accountbank-service-time");
-	builder.addDividerText(tr::lng_accountbank_settings_restart_help());
+	AddPreference(builder, u"accountbank/sponsored"_q,
+		tr::lng_accountbank_settings_hide_sponsored(), "hide-sponsored", true);
+	builder.addDividerText(tr::lng_accountbank_settings_chat_refresh());
 	builder.addButton({
 		.id = u"accountbank/admin-chats"_q,
 		.title = tr::lng_accountbank_admin_chats(),
-		.icon = { &st::menuIconChatBubble },
+		.icon = { &st::menuIconAdmin },
 		.onClick = [=] {
 			Window::ShowAccountBankAdminChats(controller);
 		},
@@ -188,8 +251,6 @@ void BuildAccountBankContent(SectionBuilder &builder) {
 	AddPreference(builder, u"accountbank/mentions"_q,
 		tr::lng_accountbank_ignore_group_mentions(),
 		"accountbank-ignore-group-mentions");
-	AddPreference(builder, u"accountbank/sponsored"_q,
-		tr::lng_accountbank_settings_hide_sponsored(), "hide-sponsored", true);
 	builder.addDividerText(tr::lng_accountbank_ignore_group_mentions_help());
 
 	builder.addSkip(st::settingsCheckboxesSkip);
@@ -206,7 +267,7 @@ void BuildAccountBankContent(SectionBuilder &builder) {
 	AddPreference(builder, u"accountbank/similar"_q,
 		tr::lng_accountbank_hide_similar_peers(),
 		"accountbank-hide-similar-peers");
-	builder.addDividerText(tr::lng_accountbank_settings_restart_help());
+	builder.addDividerText(tr::lng_accountbank_settings_appearance_refresh());
 
 	builder.addDivider();
 	builder.addSkip(st::settingsCheckboxesSkip);
@@ -217,7 +278,7 @@ void BuildAccountBankContent(SectionBuilder &builder) {
 	builder.addButton({
 		.id = u"accountbank/text-replacements"_q,
 		.title = tr::lng_accountbank_text_replacements_title(),
-		.icon = { &st::menuIconSettings },
+		.icon = { &st::menuIconEdit },
 		.onClick = [=] {
 			controller->show(Box(ChatHelpers::ShowTextReplacementsBox));
 		},
@@ -226,9 +287,19 @@ void BuildAccountBankContent(SectionBuilder &builder) {
 	builder.addButton({
 		.id = u"accountbank/message-filter"_q,
 		.title = tr::lng_accountbank_message_filter_menu(),
-		.icon = { &st::menuIconSettings },
+		.icon = { &st::menuIconSearch },
 		.onClick = [=] {
 			Window::ShowAccountBankMessageFilterBox(controller);
+		},
+	});
+	builder.addButton({
+		.id = u"accountbank/ignored-users"_q,
+		.title = tr::lng_accountbank_settings_ignored_users(),
+		.icon = { &st::menuIconBlock },
+		.onClick = [=] {
+			controller->show(Box([=](not_null<Ui::GenericBox*> box) {
+				ShowIgnoredUsersBox(box, controller);
+			}));
 		},
 	});
 }
@@ -237,7 +308,7 @@ const auto kMeta = BuildHelper({
 	.id = AccountBank::Id(),
 	.parentId = MainId(),
 	.title = &tr::lng_accountbank_settings_title,
-	.icon = &st::menuIconSettings,
+	.icon = &st::menuIconManage,
 }, [](SectionBuilder &builder) {
 	BuildAccountBankContent(builder);
 });

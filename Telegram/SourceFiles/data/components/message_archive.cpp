@@ -389,7 +389,8 @@ void MessageArchive::loadRecent(
 		const QString &kind,
 		const QString &peer,
 		Fn<void(RecentResult)> done) {
-	if (_broken || !ensureOpened()) {
+	if (_broken || !ensureOpened()
+		|| (!_pending.empty() && !flush())) {
 		done({});
 		return;
 	}

@@ -463,8 +463,14 @@ void ExportAccountBankArchive(not_null<SessionController*> controller) {
 			tr::lng_accountbank_archive_export_running(tr::now));
 		return;
 	}
-	const auto path = File::DefaultDownloadPath(&session)
-		+ u"AccountBank archive %1.json"_q.arg(session.userId().bare);
+	const auto base = File::DefaultDownloadPath(&session)
+		+ u"AccountBank archive %1 %2"_q
+			.arg(session.userId().bare)
+			.arg(QDateTime::currentDateTime().toString(u"yyyyMMdd-HHmmss-zzz"_q));
+	auto path = base + u".json"_q;
+	for (auto suffix = 2; QFileInfo::exists(path); ++suffix) {
+		path = base + u" (%1).json"_q.arg(suffix);
+	}
 	const auto weak = base::make_weak(controller);
 	archive.exportAsync(path, [weak, path](bool ok) {
 		if (!weak) {

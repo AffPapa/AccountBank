@@ -9284,3 +9284,12 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_accountbank_settings_tools" = "Правила сообщений";
 "lng_accountbank_settings_restart_help" = "Некоторые изменения станут видны после повторного открытия чата или перезапуска клиента.";
 "lng_accountbank_settings_replacements_help" = "Автозамены применяются при отправке. Когда правило срабатывает, форматирование исходного текста может потеряться.";
+"lng_accountbank_settings_local_archive" = "На этом Mac";
+"lng_accountbank_settings_cloud_export" = "Облако и экспорт";
+"lng_accountbank_settings_ignored_users" = "Игнорируемые пользователи";
+"lng_accountbank_settings_ignored_empty" = "Пока нет игнорируемых пользователей.";
+"lng_accountbank_settings_ignored_unknown" = "Пользователь {id}";
+"lng_accountbank_settings_ignored_remove" = "{name} — больше не игнорировать";
+"lng_accountbank_settings_ignored_help" = "Сообщения этих людей становятся бледнее. Уведомления и счётчики не меняются. После удаления из списка заново откройте чат.";
+"lng_accountbank_settings_chat_refresh" = "Компактный список обновится после перезапуска. Для секунд в старых сообщениях заново откройте чат.";
+"lng_accountbank_settings_appearance_refresh" = "Лента сторис появится или исчезнет после перезапуска клиента.";

@@ -343,8 +343,14 @@ void BuildSectionButtons(SectionBuilder &builder) {
 	builder.addSectionButton({
 		.title = tr::lng_accountbank_settings_title(),
 		.targetSection = AccountBankId(),
-		.icon = { &st::menuIconSettings },
-		.keywords = { u"accountbank"_q, u"archive"_q, u"privacy"_q },
+		.icon = { &st::menuIconManage },
+		.keywords = {
+			u"accountbank"_q,
+			u"архив"_q,
+			u"невидимка"_q,
+			u"сторис"_q,
+			u"фильтр"_q,
+		},
 	});
 
 	builder.addButton({
