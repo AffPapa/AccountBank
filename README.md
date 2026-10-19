@@ -1,101 +1,43 @@
-# [Telegram Desktop][telegram_desktop] – Official Messenger
+# NeTelegram — история правок и удалённых сообщений Telegram на Mac
 
-This is the complete source code and the build instructions for the official [Telegram][telegram] messenger desktop client, based on the [Telegram API][telegram_api] and the [MTProto][telegram_proto] secure protocol.
+**NeTelegram** — независимый клиент на основе [Telegram Desktop](https://github.com/telegramdesktop/tdesktop) для Mac с Apple Silicon. Он помогает увидеть, что было до правки сообщения в личном диалоге, и сохранить доступный текст удалённого сообщения в собственном архиве. Это предварительная версия; приложение внутри ZIP пока называется `AccountBank.app`.
 
-[![Version](https://badge.fury.io/gh/telegramdesktop%2Ftdesktop.svg)](https://github.com/telegramdesktop/tdesktop/releases)
-[![Build Status](https://github.com/telegramdesktop/tdesktop/workflows/Windows./badge.svg)](https://github.com/telegramdesktop/tdesktop/actions)
-[![Build Status](https://github.com/telegramdesktop/tdesktop/workflows/MacOS./badge.svg)](https://github.com/telegramdesktop/tdesktop/actions)
-[![Build Status](https://github.com/telegramdesktop/tdesktop/workflows/Linux./badge.svg)](https://github.com/telegramdesktop/tdesktop/actions)
-[![Built with Depot](https://img.shields.io/badge/Built%20with-Depot.dev-46A75A)](https://depot.dev)
+**[Сайт NeTelegram и скачивание для Mac](https://netelegram-mac.iryadom.chatgpt.site/)** · [Проверенный beta-релиз на GitHub](https://github.com/AffPapa/AccountBank/releases/tag/netelegram-v0.1.0-beta.1)
 
-[![Preview of Telegram Desktop][preview_image]][preview_image_url]
+## Что делает клиент
 
-The source code is published under GPLv3 with OpenSSL exception, the license is available [here][license].
+- **История изменений личных сообщений.** В локальном архиве видно «Было» и «Стало». Длинные версии можно раскрыть полностью. Новые события правок записываются из личных переписок с людьми, а не из групп, каналов, ботов и «Избранного».
+- **Архив удалённых сообщений.** Если исходный снимок уже был у клиента, его текст остаётся в архиве после удаления из чата. По умолчанию новые снимки и удаления ограничены личными диалогами; охват групп и каналов для удалений включается отдельно.
+- **Архив с темами в Telegram.** События можно отправлять в свой архивный чат, разделённый по диалогам. Ссылка на него находится в боковом меню. Доступны локальный просмотр и экспорт.
+- **Фото, видео, GIF и файлы.** Клиент пытается перенести доступное вложение в архивный чат и показывает статус доставки. Это не гарантирует сохранение файла после удаления оригинала: локального кэша байтов в beta пока нет.
+- **Повседневные настройки.** Несколько активных аккаунтов, компактный список чатов, сортировка непрочитанных, автозамены, визуальные фильтры, создание группы и канала из бокового меню. Компактный вид применяется без перезапуска.
 
-## Supported systems
+### Границы архива и пересылки
 
-The latest version is available for
+- Удалённый текст можно показать, только если снимок был сохранён до удаления. Одного ID сообщения для восстановления недостаточно.
+- Самоуничтожающиеся фото и другие медиа с таймером **не сохраняются** этой версией.
+- Обычная пересылка из личного чата работает в пределах разрешений Telegram. Клиент не обещает пересылку из чата с включённой защитой контента и не снимает ограничения владельца чата.
+- Локальный архив и отправка его событий в собственный чат — разные функции. Медиа после удаления может остаться только метаданными или ссылкой; интерфейс показывает результат.
 
-* [Windows 7 and above (64 bit)](https://telegram.org/dl/desktop/win64) ([portable](https://telegram.org/dl/desktop/win64_portable))
-* [Windows 7 and above (32 bit)](https://telegram.org/dl/desktop/win) ([portable](https://telegram.org/dl/desktop/win_portable))
-* [macOS 10.13 and above](https://telegram.org/dl/desktop/mac)
-* [Linux static build for 64 bit](https://telegram.org/dl/desktop/linux)
-* [Snap](https://snapcraft.io/telegram-desktop)
-* [Flatpak](https://flathub.org/apps/details/org.telegram.desktop)
+## Скачать и установить
 
-## Old system versions
+Откройте **[сайт NeTelegram](https://netelegram-mac.iryadom.chatgpt.site/)**, скачайте ZIP для Mac с Apple Silicon (macOS 12 или новее), распакуйте его и перенесите `AccountBank.app` в «Программы». Сборка подписана Developer ID и нотариализована Apple. [GitHub Release](https://github.com/AffPapa/AccountBank/releases/tag/netelegram-v0.1.0-beta.1) содержит тот же ZIP и `SHA256SUMS.txt`.
 
-Version **4.9.9** was the last that supports older systems
+Проверка на реальных аккаунтах пока ограничена: если архив и медиа важны для вашей работы, начните с отдельного тестового профиля. Данные других Telegram-клиентов сюда автоматически не импортируются.
 
-* [macOS 10.12](https://updates.tdesktop.com/tmac/tsetup.4.9.9.dmg)
-* [Linux with glibc < 2.28 static build](https://updates.tdesktop.com/tlinux/tsetup.4.9.9.tar.xz)
+## Сравнение клиентов Telegram для Mac
 
-Version **2.4.4** was the last that supports older systems
+| Клиент | Платформы | Для чего подходит | Отдельная история правок и удалений |
+| --- | --- | --- | --- |
+| **NeTelegram beta** | Apple Silicon Mac, macOS 12+ | Личный архив, версии текста, собственный чат с темами | Есть в личных диалогах; перенос медиа не гарантирован |
+| [Telegram Desktop](https://telegram.org/desktop/mac) | Mac, Windows, Linux | Официальный универсальный настольный клиент | В публичном описании не заявлена |
+| [Telegram for macOS](https://telegram.org/macos) | Mac | Официальный нативный клиент macOS | В публичном описании не заявлена |
+| [Nicegram Desktop](https://github.com/nicegram/nicegram-desktop) | Mac, Windows, Linux | Независимый клиент на основе Telegram Desktop | В публичном описании не заявлена |
 
-* [OS X 10.10 and 10.11](https://updates.tdesktop.com/tosx/tsetup-osx.2.4.4.dmg)
-* [Linux static build for 32 bit](https://updates.tdesktop.com/tlinux32/tsetup32.2.4.4.tar.xz)
+«Не заявлена» описывает проверенные публичные страницы по ссылкам; это не утверждение, что функции нет во всех версиях другого клиента. NeTelegram основан на Telegram Desktop и не является официальным приложением Telegram.
 
-Version **1.8.15** was the last that supports older systems
+## Исходный код и сборка
 
-* [Windows XP and Vista](https://updates.tdesktop.com/tsetup/tsetup.1.8.15.exe) ([portable](https://updates.tdesktop.com/tsetup/tportable.1.8.15.zip))
-* [OS X 10.8 and 10.9](https://updates.tdesktop.com/tmac/tsetup.1.8.15.dmg)
-* [OS X 10.6 and 10.7](https://updates.tdesktop.com/tmac32/tsetup32.1.8.15.dmg)
+Исходный код этой beta-версии находится в ветке `accountbank/bootstrap`; тег релиза фиксирует исходники опубликованного бинарника. Для самостоятельной сборки нужны зависимости Telegram Desktop и собственные Telegram API ID/hash. Локальный файл `accountbank-api.local.cmake` исключён из Git. Не добавляйте в коммиты API-данные, сессии или архивы чатов. Готовый ZIP со встроенной конфигурацией проекта доступен по ссылке на сайте и не требует от пользователя получать свои API-ключи.
 
-## Third-party
-
-* Qt 6 ([LGPL](http://doc.qt.io/qt-6/lgpl.html)) and Qt 5.15 ([LGPL](http://doc.qt.io/qt-5/lgpl.html)) slightly patched
-* OpenSSL 3.2.1 ([Apache License 2.0](https://openssl-library.org/source/license/apache-license-2.0.txt))
-* WebRTC ([New BSD License](https://github.com/desktop-app/tg_owt/blob/master/LICENSE))
-* zlib ([zlib License](http://www.zlib.net/zlib_license.html))
-* LZMA SDK 9.20 ([public domain](http://www.7-zip.org/sdk.html))
-* liblzma ([public domain](http://tukaani.org/xz/))
-* Google Breakpad ([License](https://chromium.googlesource.com/breakpad/breakpad/+/master/LICENSE))
-* Google Crashpad ([Apache License 2.0](https://chromium.googlesource.com/crashpad/crashpad/+/master/LICENSE))
-* GYP ([BSD License](https://github.com/bnoordhuis/gyp/blob/master/LICENSE))
-* Ninja ([Apache License 2.0](https://github.com/ninja-build/ninja/blob/master/COPYING))
-* OpenAL Soft ([LGPL](https://github.com/kcat/openal-soft/blob/master/COPYING))
-* Opus codec ([BSD License](http://www.opus-codec.org/license/))
-* FFmpeg ([LGPL](https://www.ffmpeg.org/legal.html))
-* Guideline Support Library ([MIT License](https://github.com/Microsoft/GSL/blob/master/LICENSE))
-* Range-v3 ([Boost License](https://github.com/ericniebler/range-v3/blob/master/LICENSE.txt))
-* Open Sans font ([Apache License 2.0](http://www.apache.org/licenses/LICENSE-2.0.html))
-* Vazirmatn font ([SIL Open Font License 1.1](https://github.com/rastikerdar/vazirmatn/blob/master/OFL.txt))
-* Emoji alpha codes ([MIT License](https://github.com/emojione/emojione/blob/master/extras/alpha-codes/LICENSE.md))
-* xxHash ([BSD License](https://github.com/Cyan4973/xxHash/blob/dev/LICENSE))
-* QR Code generator ([MIT License](https://github.com/nayuki/QR-Code-generator#license))
-* CMake ([New BSD License](https://github.com/Kitware/CMake/blob/master/Copyright.txt))
-* Hunspell ([LGPL](https://github.com/hunspell/hunspell/blob/master/COPYING.LESSER))
-* Ada ([Apache License 2.0](https://github.com/ada-url/ada/blob/main/LICENSE-APACHE))
-* zxcvbn-c ([MIT License](https://github.com/tsyrogit/zxcvbn-c/blob/master/LICENSE.txt))
-* FrequencyWords by Hermit Dave ([Creative Commons Attribution-ShareAlike 4.0](https://creativecommons.org/licenses/by-sa/4.0/))
-
-## Build instructions
-
-* [Windows (32-bit and 64-bit)][win]
-* [macOS][mac]
-* [GNU/Linux using Docker][linux]
-
-[//]: # (LINKS)
-[telegram]: https://telegram.org
-[telegram_desktop]: https://desktop.telegram.org
-[telegram_api]: https://core.telegram.org
-[telegram_proto]: https://core.telegram.org/mtproto
-[license]: LICENSE
-[win]: docs/building-win.md
-[mac]: docs/building-mac.md
-[linux]: docs/building-linux.md
-[preview_image]: https://github.com/telegramdesktop/tdesktop/blob/dev/docs/assets/preview.png "Preview of Telegram Desktop"
-[preview_image_url]: https://raw.githubusercontent.com/telegramdesktop/tdesktop/dev/docs/assets/preview.png
-
-## Thanks to
-
-<a href="https://depot.dev">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://depot.dev/assets/brand/1693758816/depot-logo-horizontal-on-dark.svg">
-    <source media="(prefers-color-scheme: light)" srcset="https://depot.dev/assets/brand/1693758816/depot-logo-horizontal-on-light.svg">
-    <img alt="Depot" src="https://depot.dev/assets/brand/1693758816/depot-logo-horizontal-on-light.svg" width="150">
-  </picture>
-</a>
-
-CI infrastructure sponsored by [Depot](https://depot.dev) — fast GitHub Actions runners.
-
+Проект распространяется с условиями [GPLv3 и исключением OpenSSL](LICENSE). Основа и оригинальные инструкции по сборке: [Telegram Desktop](https://github.com/telegramdesktop/tdesktop). Разработка NeTelegram ведётся независимо от Telegram.
