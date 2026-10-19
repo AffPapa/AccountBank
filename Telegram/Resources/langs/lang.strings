@@ -9205,12 +9205,20 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_accountbank_archive_missing" = "файл отсутствует";
 "lng_accountbank_archive_photo_metadata" = "только данные о фото";
 "lng_accountbank_archive_file_metadata" = "только данные о файле";
+"lng_accountbank_media_saved_cloud" = "Вложение сохранено в архивном чате";
+"lng_accountbank_media_waiting_cloud" = "Ссылка получена; отправка вложения ожидается";
+"lng_accountbank_media_failed_cloud" = "Вложение не удалось сохранить в архивном чате";
+"lng_accountbank_media_reference_only" = "Есть ссылка Telegram; файл локально не сохранён";
+"lng_accountbank_media_unknown_cloud" = "Статус старой отправки вложения неизвестен";
+"lng_accountbank_media_metadata_only" = "Сохранены только данные о вложении";
 "lng_accountbank_archive_unknown" = "Отправитель неизвестен";
 "lng_accountbank_archive_no_text" = "[Без текста]";
 "lng_accountbank_archive_unknown_body" = "[Содержимое не было получено этим устройством]";
 "lng_accountbank_archive_old_version" = "[версия из старого архива; могла быть изменена ранее]";
 "lng_accountbank_archive_before" = "Было:";
 "lng_accountbank_archive_after" = "Стало:";
+"lng_accountbank_archive_show_full" = "Показать полностью";
+"lng_accountbank_archive_collapse" = "Свернуть";
 "lng_accountbank_archive_after_sent" = "после отправки";
 "lng_accountbank_archive_about" = "Архив хранит только события, которые клиент успел получить. После офлайна прежний текст может быть недоступен. Полный список — в экспорте JSON.";
 "lng_accountbank_archive_full" = "Архив достиг предела записей. Новые события пока не сохраняются.";
@@ -9243,7 +9251,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_accountbank_hide_similar_peers" = "Скрыть похожие каналы и ботов";
 "lng_accountbank_hide_similar_peers_help" = "Рекомендации исчезнут из профилей после повторного открытия клиента.";
 "lng_accountbank_compact_list" = "Компактный список чатов";
-"lng_accountbank_compact_list_help" = "Строки чатов станут ниже после перезапуска клиента.";
+"lng_accountbank_compact_list_help" = "Строки чатов станут ниже сразу после переключения.";
 "lng_accountbank_unread_first" = "Непрочитанные сверху";
 "lng_accountbank_unread_first_help" = "Чаты с непрочитанными сообщениями поднимаются над остальными и возвращаются на место после прочтения.";
 "lng_accountbank_local_pinned" = "Лимит закрепов достигнут: чат закреплён локально, только на этом устройстве.";
@@ -9277,6 +9285,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_accountbank_settings_archive" = "Архив сообщений";
 "lng_accountbank_settings_archive_scope" = "Кнопки ниже работают с архивом текущего аккаунта.";
 "lng_accountbank_settings_keep_deleted" = "Оставлять удалённые сообщения в чате";
+"lng_accountbank_archive_all_deletions" = "Архивировать удаления из остальных чатов";
+"lng_accountbank_archive_all_deletions_help" = "По умолчанию новые снимки и удаления сохраняются только из личных диалогов с людьми. Включите этот пункт для групп, каналов, ботов и Избранного. Старые записи останутся в архиве.";
 "lng_accountbank_settings_chats" = "Список и сообщения";
 "lng_accountbank_settings_notifications" = "Уведомления";
 "lng_accountbank_settings_hide_sponsored" = "Скрывать рекламные сообщения";
@@ -9291,7 +9301,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_accountbank_settings_ignored_unknown" = "Пользователь {id}";
 "lng_accountbank_settings_ignored_remove" = "Убрать из списка";
 "lng_accountbank_settings_ignored_help" = "Сообщения этих людей скрываются в чатах на этом Mac. Новые уведомления о них не появляются, но счётчики Telegram не меняются. После удаления из списка снова откройте чат.";
-"lng_accountbank_settings_chat_refresh" = "Компактный список обновится после перезапуска. Для секунд в старых сообщениях заново откройте чат.";
+"lng_accountbank_settings_chat_refresh" = "Компактный список обновится сразу. Для секунд в старых сообщениях заново откройте чат.";
 "lng_accountbank_settings_appearance_refresh" = "Лента сторис появится или исчезнет после перезапуска клиента.";
 "lng_accountbank_archive_home" = "Локальный архив";
 "lng_accountbank_archive_home_about" = "События текущего аккаунта, сохранённые на этом Mac. Выберите раздел.";

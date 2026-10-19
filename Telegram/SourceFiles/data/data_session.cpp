@@ -3063,13 +3063,22 @@ void Session::updateEditedMessage(const MTPMessage &data) {
 	if (data.type() == mtpc_message) {
 		const auto &edited = data.c_message();
 		const auto peer = peerFromMTP(edited.vpeer_id());
+		const auto dialog = existing
+			? existing->history()->peer.get()
+			: peerLoaded(peer);
+		// Edit history is useful for conversations with people. Group,
+		// channel, bot and Saved Messages edits produce noisy archives.
+		const auto personalDialog = dialog
+			&& dialog->isUser()
+			&& !dialog->isBot()
+			&& !dialog->isSelf();
 		const auto duplicate = existing
 			&& (existing->originalText().text == qs(edited.vmessage()))
 			&& edited.vedit_date()
 			&& existing->Get<HistoryMessageEdited>()
 			&& existing->Get<HistoryMessageEdited>()->date
 				== edited.vedit_date()->v;
-		if (!duplicate) {
+		if (personalDialog && !duplicate) {
 			auto afterPhoto = QString();
 			auto afterDocument = QString();
 			if (const auto media = edited.vmedia()) {

@@ -210,7 +210,6 @@ constexpr auto kLeftSiblingTextureIndex = 1;
 constexpr auto kRightSiblingTextureIndex = 2;
 constexpr auto kStoriesControlsOpacity = 1.;
 constexpr auto kStorySavePromoDuration = 3 * crl::time(1000);
-constexpr auto kTtlSavedToastDuration = 5 * crl::time(1000);
 
 class PipDelegate final : public Pip::Delegate {
 public:
@@ -1658,7 +1657,6 @@ bool OverlayWidget::computeSaveButtonVisible() const {
 }
 
 void OverlayWidget::checkForSaveLoaded() {
-	maybeAutoSaveTtlPhoto();
 	if (_savePhotoVideoWhenLoaded == SavePhotoVideo::None) {
 		return;
 	} else if (!_photo
@@ -3544,181 +3542,6 @@ void OverlayWidget::downloadMedia() {
 	}
 }
 
-void OverlayWidget::maybeAutoSaveTtlPhoto() {
-	const auto media = _message ? _message->media() : nullptr;
-	if (!_photo
-		|| _photo->hasVideo()
-		|| !_photoMedia->loaded()
-		|| !media
-		|| media->photo() != _photo
-		|| !media->ttlSeconds()) {
-		return;
-	}
-	const auto &settings = Core::App().settings();
-	const auto base = (!settings.askDownloadPath()
-		&& !settings.downloadPath().isEmpty()
-		&& settings.downloadPath() != FileDialog::Tmp())
-			? settings.downloadPath()
-			: File::DefaultDownloadPath(&_photo->session());
-	if (base.isEmpty()) {
-		return;
-	}
-	const auto dir = QDir(base).filePath(u"ttl"_q);
-	QDir().mkpath(dir);
-	// WHY: the client deletes TTL photos after viewing, so a named copy is kept.
-	const auto toName = dir + u"/ttl_photo_%1.jpg"_q.arg(_photo->id);
-	const auto recordSaved = [&] {
-		if (_message) {
-			_session->data().archive().logSavedMedia(
-				u"saved_ttl_photo"_q,
-				toName,
-				QString::number(_message->history()->peer->id.value),
-				QString::number(_message->id.bare),
-				_message->from() ? _message->from()->name() : QString(),
-				_message->history()->peer->name());
-		}
-	};
-	if (QFileInfo(toName).size() > 0) {
-		recordSaved();
-		return;
-	} else if (!_photoMedia->saveToFile(toName)) {
-		QFile(toName).remove();
-		LOG(("TTL photo auto-save failed: %1").arg(toName));
-		return;
-	}
-	recordSaved();
-	showSaveMsgToastWith(
-		toName,
-		tr::lng_mediaview_ttl_saved_to(
-			tr::now,
-			lt_path,
-			tr::link(toName, "internal:show_saved_message"),
-			tr::marked),
-		kTtlSavedToastDuration);
-}
-
-void OverlayWidget::maybeAutoSaveShownStory() {
-	const auto story = _stories ? _stories->story() : nullptr;
-	if (!story || story->unsupported() || story->call()) {
-		return;
-	}
-	const auto photo = story->photo();
-	const auto document = story->document();
-	if (!photo && !document) {
-		return;
-	}
-	const auto session = photo
-		? &photo->session()
-		: &document->session();
-	const auto &settings = Core::App().settings();
-	const auto base = (!settings.askDownloadPath()
-		&& !settings.downloadPath().isEmpty()
-		&& settings.downloadPath() != FileDialog::Tmp())
-			? settings.downloadPath()
-			: File::DefaultDownloadPath(session);
-	if (base.isEmpty()) {
-		return;
-	}
-	const auto dir = QDir(base).filePath(u"stories"_q);
-	QDir().mkpath(dir);
-	const auto prefix = dir + u"/story_%1_%2"_q
-		.arg(story->peer()->id.value)
-		.arg(story->id());
-	const auto recordSaved = [&](const QString &toName) {
-		_session->data().archive().logSavedMedia(
-			u"saved_story"_q,
-			toName,
-			QString::number(story->peer()->id.value),
-			QString::number(story->id()),
-			story->peer()->name(),
-			story->peer()->name());
-	};
-	if (photo) {
-		if (_photo != photo || !_photoMedia || !_photoMedia->loaded()) {
-			return;
-		}
-		const auto toName = prefix + u".jpg"_q;
-		if (QFileInfo(toName).size() > 0) {
-			recordSaved(toName);
-			return;
-		} else if (!_photoMedia->saveToFile(toName)) {
-			QFile(toName).remove();
-			LOG(("Story photo auto-save failed: %1").arg(toName));
-			return;
-		}
-		recordSaved(toName);
-	} else {
-		if (_document != document || document->loading()) {
-			return;
-		}
-		auto extension = QFileInfo(document->filename()).suffix();
-		if (extension.isEmpty()) {
-			extension = u"mp4"_q;
-		}
-		const auto toName = prefix + u".%1"_q.arg(extension);
-		if (QFileInfo(toName).size() > 0) {
-			recordSaved(toName);
-			return;
-		}
-		const auto &location = document->location(true);
-		if (location.accessEnable()) {
-			QFile(toName).remove();
-			if (!QFile(location.name()).copy(toName)) {
-				LOG(("Story video auto-save failed: %1").arg(toName));
-			} else {
-				recordSaved(toName);
-			}
-			location.accessDisable();
-		} else {
-			document->save(_stories->fileOrigin(), toName);
-			if (QFileInfo(toName).size() > 0) {
-				recordSaved(toName);
-			}
-		}
-	}
-}
-
-void OverlayWidget::maybeAutoSaveTtlDocument() {
-	const auto media = _message ? _message->media() : nullptr;
-	if (!_document
-		|| !media
-		|| media->document() != _document
-		|| !media->ttlSeconds()
-		|| _document->loading()) {
-		return;
-	}
-	const auto &settings = Core::App().settings();
-	const auto base = (!settings.askDownloadPath()
-		&& !settings.downloadPath().isEmpty()
-		&& settings.downloadPath() != FileDialog::Tmp())
-			? settings.downloadPath()
-			: File::DefaultDownloadPath(&_document->session());
-	if (base.isEmpty()) {
-		return;
-	}
-	const auto dir = QDir(base).filePath(u"ttl"_q);
-	QDir().mkpath(dir);
-	auto extension = QFileInfo(_document->filename()).suffix();
-	if (extension.isEmpty()) {
-		extension = u"mp4"_q;
-	}
-	const auto toName = dir
-		+ u"/ttl_doc_%1.%2"_q.arg(_document->id).arg(extension);
-	if (QFileInfo(toName).size() > 0) {
-		return;
-	}
-	const auto &location = _document->location(true);
-	if (location.accessEnable()) {
-		QFile(toName).remove();
-		if (!QFile(location.name()).copy(toName)) {
-			LOG(("TTL document auto-save failed: %1").arg(toName));
-		}
-		location.accessDisable();
-	} else {
-		_document->save(fileOrigin(), toName);
-	}
-}
-
 void OverlayWidget::saveCancel() {
 	if (_document && _document->loading()) {
 		_document->cancel();
@@ -4857,8 +4680,6 @@ void OverlayWidget::displayPhoto(
 	}
 	contentSizeChanged();
 	refreshFromLabel();
-	maybeAutoSaveTtlPhoto();
-	maybeAutoSaveShownStory();
 	displayFinished(activation);
 }
 
@@ -5024,8 +4845,6 @@ void OverlayWidget::displayDocument(
 	}
 	refreshFromLabel();
 	_blurred = false;
-	maybeAutoSaveShownStory();
-	maybeAutoSaveTtlDocument();
 	if (_showAsPip && _streamed && _streamed->controls) {
 		switchToPip();
 	} else {
@@ -8013,13 +7832,6 @@ void OverlayWidget::setSession(not_null<Main::Session*> session) {
 		}
 	}, _sessionLifetime);
 
-	session->downloaderTaskFinished(
-	) | rpl::on_next([=] {
-		maybeAutoSaveTtlPhoto();
-		maybeAutoSaveTtlDocument();
-		maybeAutoSaveShownStory();
-	}, _sessionLifetime);
-
 	session->data().documentLoadProgress(
 	) | rpl::filter([=] {
 		return !isHidden();
@@ -9013,9 +8825,6 @@ Window::SessionController *OverlayWidget::findWindow(bool switchTo) const {
 
 // #TODO unite and check
 void OverlayWidget::clearBeforeHide() {
-	maybeAutoSaveTtlPhoto();
-	maybeAutoSaveTtlDocument();
-	maybeAutoSaveShownStory();
 	checkSingleViewMediaBurn();
 	_message = nullptr;
 	_sharedMedia = nullptr;

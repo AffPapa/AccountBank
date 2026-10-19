@@ -58,13 +58,6 @@ public:
 	void logRead(not_null<History*> history, MsgId upTo);
 	void logPresence(not_null<PeerData*> peer);
 	void logProfileChange(not_null<PeerData*> peer);
-	void logSavedMedia(
-		const QString &kind,
-		const QString &path,
-		const QString &peer,
-		const QString &msg,
-		const QString &senderName,
-		const QString &peerName);
 	[[nodiscard]] bool exportTo(const QString &path);
 	void exportAsync(const QString &path, Fn<void(bool)> done);
 	[[nodiscard]] bool exportInProgress() const { return _exportActive; }
@@ -86,6 +79,8 @@ private:
 		bool cloudMirror = false;
 		QByteArray stateKey;
 		QByteArray lookupKey;
+		QByteArray kindKey;
+		QByteArray peerKey;
 		bool stateReplace = false;
 	};
 
@@ -123,8 +118,10 @@ private:
 		int offsetId = 0,
 		int offsetTopic = 0,
 		int page = 0);
-	void sendCloudSnapshot();
-	void markCloudSent(const QByteArray &key);
+	void sendCloudSnapshot(bool textOnly = false);
+	void markCloudSent(
+		const QByteArray &key,
+		std::optional<bool> mediaSent);
 	void deferCloudEvent(const QByteArray &key, crl::time delay);
 	void pauseCloudMirror(const QString &errorType, crl::time delay);
 	[[nodiscard]] bool saveCloudDestination(
@@ -163,6 +160,7 @@ private:
 	bool _broken = false;
 	bool _full = false;
 	bool _exportActive = false;
+	bool _recentMigrationStarted = false;
 
 	static constexpr auto kMaxRows = qint64(2'000'000);
 	static constexpr auto kMaxPending = 10'000;

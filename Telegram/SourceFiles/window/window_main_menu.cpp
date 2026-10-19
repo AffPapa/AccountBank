@@ -154,6 +154,18 @@ QString AccountBankElapsed(qint64 sent, qint64 observed) {
 	return tr::lng_minutes_tiny(tr::now, lt_count, int(minutes));
 }
 
+QString AccountBankEditExcerpt(const QString &text, int changeAt) {
+	const auto start = std::max(0, changeAt - 36);
+	const auto end = std::min(int(text.size()), start + 220);
+	auto excerpt = text.mid(start, end - start);
+	excerpt.replace(u'\n', u'↵');
+	excerpt.replace(u'\r', u'↵');
+	excerpt.replace(u'\t', u'⇥');
+	return (start ? u"…"_q : QString())
+		+ excerpt
+		+ (end < text.size() ? u"…"_q : QString());
+}
+
 void ShowAccountBankArchiveHomeBox(
 		not_null<Window::SessionController*> controller);
 
@@ -308,7 +320,7 @@ void ShowAccountBankArchiveBox(
 					const auto when = QLocale().toString(
 						QDateTime::fromMSecsSinceEpoch(observed),
 						QLocale::ShortFormat);
-					const auto text = row.value(u"text"_q).toString().left(800);
+					const auto text = row.value(u"text"_q).toString();
 					const auto media = row.contains(u"photo"_q)
 						? u" ["_q
 							+ tr::lng_accountbank_archive_photo_metadata(tr::now)
@@ -318,20 +330,29 @@ void ShowAccountBankArchiveBox(
 								+ tr::lng_accountbank_archive_file_metadata(tr::now)
 								+ u"]"_q
 							: QString();
+					const auto mediaStatus = (kind != u"delete"_q
+						|| media.isEmpty())
+						? QString()
+						: row.value(u"cloud_sent"_q).toBool()
+							? row.contains(u"media_sent"_q)
+								? row.value(u"media_sent"_q).toBool()
+									? tr::lng_accountbank_media_saved_cloud(tr::now)
+									: tr::lng_accountbank_media_failed_cloud(tr::now)
+								: tr::lng_accountbank_media_unknown_cloud(tr::now)
+							: row.value(u"cloud_queued"_q).toBool()
+								? tr::lng_accountbank_media_waiting_cloud(tr::now)
+								: row.value(u"media_reference_available"_q).toBool()
+									? tr::lng_accountbank_media_reference_only(tr::now)
+									: tr::lng_accountbank_media_metadata_only(tr::now);
 					const auto timeInfo = when + ((sent > 0 && observed >= sent)
 						? u" · ~"_q + elapsed + u" "_q
 							+ tr::lng_accountbank_archive_after_sent(tr::now)
 						: QString());
 					const auto beforeKnown = row.value(u"before_known"_q).toBool(true);
-					const auto before = beforeKnown
-						? (text.isEmpty()
-							? tr::lng_accountbank_archive_no_text(tr::now)
-							: text)
-						: tr::lng_accountbank_archive_unknown_body(tr::now);
 					const auto beforeNote = row.value(u"before_may_be_stale"_q).toBool()
 						? u" "_q + tr::lng_accountbank_archive_old_version(tr::now)
 						: QString();
-					const auto afterText = row.value(u"after_text"_q).toString().left(800);
+					const auto afterText = row.value(u"after_text"_q).toString();
 					const auto afterPhoto = row.value(u"after_photo"_q).toString();
 					const auto afterDocument = row.value(u"after_document"_q).toString();
 					const auto afterMedia = !afterPhoto.isEmpty()
@@ -343,27 +364,72 @@ void ShowAccountBankArchiveBox(
 								+ tr::lng_accountbank_archive_file_metadata(tr::now)
 								+ u" #"_q + afterDocument + u"]"_q
 							: QString();
-					const auto after = (kind == u"edit"_q)
-						? u"\n"_q + tr::lng_accountbank_archive_after(tr::now)
-							+ u" "_q + (afterText.isEmpty()
-								? tr::lng_accountbank_archive_no_text(tr::now)
-								: afterText) + afterMedia
-						: QString();
-					const auto summary = QString::fromUtf8("%1 · %2\n%3\n%4 %5%6%7")
+					auto changeAt = 0;
+					if (kind == u"edit"_q && beforeKnown) {
+						const auto shared = std::min(text.size(), afterText.size());
+						while (changeAt < shared
+							&& text.at(changeAt) == afterText.at(changeAt)) {
+							++changeAt;
+						}
+					}
+					const auto header = QString::fromUtf8("%1 · %2\n%3")
 						.arg(from.isEmpty()
 							? (fromId.isEmpty()
 								? tr::lng_accountbank_archive_unknown(tr::now)
 								: fromId)
 							: from)
 						.arg(peer.isEmpty() ? peerId : peer)
-						.arg(timeInfo)
-						.arg(tr::lng_accountbank_archive_before(tr::now))
-						.arg(before + beforeNote)
-						.arg(media)
-						.arg(after);
+						.arg(timeInfo);
+					const auto format = [&](bool expanded) {
+						const auto beforeText = beforeKnown
+							? (text.isEmpty()
+								? tr::lng_accountbank_archive_no_text(tr::now)
+								: kind != u"edit"_q
+									? text.left(800)
+									: expanded
+										? text
+										: AccountBankEditExcerpt(text, changeAt))
+							: tr::lng_accountbank_archive_unknown_body(tr::now);
+						auto result = header
+							+ u"\n− "_q + tr::lng_accountbank_archive_before(tr::now)
+							+ u" "_q + beforeText + beforeNote + media;
+						if (!mediaStatus.isEmpty()) {
+							result += u"\n"_q + mediaStatus;
+						}
+						if (kind == u"edit"_q) {
+							const auto afterBody = afterText.isEmpty()
+								? tr::lng_accountbank_archive_no_text(tr::now)
+								: expanded
+									? afterText
+									: AccountBankEditExcerpt(afterText, changeAt);
+							result += u"\n+ "_q
+								+ tr::lng_accountbank_archive_after(tr::now)
+								+ u" "_q + afterBody + afterMedia;
+						}
+						return result;
+					};
+					const auto summary = format(false);
 					const auto label = weak->addRow(
 						object_ptr<Ui::FlatLabel>(weak.get(), summary, st::aboutLabel));
 					label->setSelectable(true);
+					if (kind == u"edit"_q) {
+						const auto expanded = format(true);
+						if (expanded != summary) {
+							const auto toggle = weak->addRow(
+								object_ptr<Ui::LinkButton>(
+									weak.get(),
+									tr::lng_accountbank_archive_show_full(tr::now),
+									st::aboutVersionLink));
+							toggle->setClickedCallback(
+								[label, toggle, summary, expanded, full = false]() mutable {
+									full = !full;
+									label->setText(full ? expanded : summary);
+									toggle->setText(full
+										? tr::lng_accountbank_archive_collapse(tr::now)
+										: tr::lng_accountbank_archive_show_full(tr::now));
+								});
+						}
+					}
 					if (peerFilter.isEmpty() && !peerId.isEmpty()) {
 						const auto dialog = weak->addRow(
 							object_ptr<Ui::LinkButton>(
@@ -949,6 +1015,25 @@ void MainMenu::setupMenu() {
 			{ &st::menuIconProfile })
 	)->setClickedCallback([=] {
 		controller->showPeerInfo(controller->session().user());
+	});
+
+	addAction(
+		tr::lng_create_group_title(),
+		{ &st::menuIconGroups }
+	)->setClickedCallback([=] {
+		controller->showNewGroup();
+	});
+	addAction(
+		tr::lng_create_channel_title(),
+		{ &st::menuIconChannel }
+	)->setClickedCallback([=] {
+		controller->showNewChannel();
+	});
+	addAction(
+		tr::lng_accountbank_cloud_archive(),
+		{ &st::menuIconArchive }
+	)->setClickedCallback([=] {
+		OpenAccountBankCloudForum(controller);
 	});
 
 	addAction(

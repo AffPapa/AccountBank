@@ -139,10 +139,6 @@ void BuildAccountBankContent(SectionBuilder &builder) {
 		.id = u"accountbank/privacy"_q,
 		.title = tr::lng_accountbank_settings_privacy(),
 	});
-	AddPreference(builder, u"accountbank/ghost"_q,
-		tr::lng_accountbank_settings_ghost(), "ghost-mode", true);
-	AddPreference(builder, u"accountbank/copy"_q,
-		tr::lng_accountbank_settings_copy(), "allow-copy-restricted", true);
 	AddPreference(builder, u"accountbank/streamer"_q,
 		tr::lng_accountbank_settings_streamer(), "streamer-mode");
 	builder.addDividerText(tr::lng_accountbank_settings_privacy_help());
@@ -153,27 +149,16 @@ void BuildAccountBankContent(SectionBuilder &builder) {
 		.title = tr::lng_accountbank_settings_archive(),
 	});
 	builder.addDividerText(tr::lng_accountbank_settings_archive_scope());
-	AddPreference(builder, u"accountbank/keep-deleted"_q,
-		tr::lng_accountbank_settings_keep_deleted(), "keep-deleted", true);
-	builder.addDividerText(tr::lng_accountbank_keep_deleted_help());
+	AddPreference(builder, u"accountbank/archive-all-deletions"_q,
+		tr::lng_accountbank_archive_all_deletions(),
+		"archive-all-deletions");
+	builder.addDividerText(tr::lng_accountbank_archive_all_deletions_help());
 	builder.addButton({
 		.id = u"accountbank/local-archive"_q,
 		.title = tr::lng_accountbank_settings_local_archive(),
 		.icon = { &st::menuIconArchiveOpen },
 		.onClick = [=] {
 			Window::ShowAccountBankArchiveHome(controller);
-		},
-	});
-	builder.addSubsectionTitle({
-		.id = u"accountbank/cloud-and-export"_q,
-		.title = tr::lng_accountbank_settings_cloud_export(),
-	});
-	builder.addButton({
-		.id = u"accountbank/cloud-archive"_q,
-		.title = tr::lng_accountbank_cloud_archive(),
-		.icon = { &st::menuIconArchive },
-		.onClick = [=] {
-			Window::OpenAccountBankCloudForum(controller);
 		},
 	});
 	if (controller && controller->session().data().archive()
@@ -210,8 +195,6 @@ void BuildAccountBankContent(SectionBuilder &builder) {
 		tr::lng_accountbank_time_seconds(), "accountbank-time-seconds");
 	AddPreference(builder, u"accountbank/service-time"_q,
 		tr::lng_accountbank_service_time(), "accountbank-service-time");
-	AddPreference(builder, u"accountbank/sponsored"_q,
-		tr::lng_accountbank_settings_hide_sponsored(), "hide-sponsored", true);
 	builder.addDividerText(tr::lng_accountbank_settings_chat_refresh());
 	builder.addDividerText(tr::lng_accountbank_role_folders_help());
 

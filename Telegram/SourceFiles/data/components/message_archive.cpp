@@ -8,6 +8,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/components/message_archive.h"
 
 #include "base/unixtime.h"
+#include "core/application.h"
+#include "core/core_settings.h"
 #include "data/data_changes.h"
 #include "data/data_document.h"
 #include "data/data_channel.h"
@@ -35,6 +37,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <QSaveFile>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QThread>
 #include <limits>
 
 namespace Data {
@@ -209,6 +212,8 @@ QJsonObject SerializeItem(not_null<HistoryItem*> item) {
 	object.insert(u"from_name"_q, item->from() ? item->from()->name() : QString());
 	object.insert(u"peer_name"_q, peer->name());
 	object.insert(u"non_channel"_q, !peer->isChannel());
+	object.insert(u"personal_dialog"_q,
+		peer->isUser() && !peer->isBot() && !peer->isSelf());
 	object.insert(u"cloud_allowed"_q, item->allowsMediaDownloadControls());
 	object.insert(u"out"_q, item->out());
 	object.insert(u"text"_q, item->originalText().text);
@@ -222,6 +227,217 @@ QJsonObject SerializeItem(not_null<HistoryItem*> item) {
 		}
 	}
 	return object;
+}
+
+void AddCloudMediaReference(
+		not_null<HistoryItem*> item,
+		QJsonObject &object) {
+	if (!item->allowsMediaDownloadControls()) {
+		return;
+	}
+	const auto media = item->media();
+	if (!media) {
+		return;
+	}
+	if (const auto photo = media->photo()) {
+		const auto input = photo->mtpInput();
+		if (input.type() != mtpc_inputPhoto
+			|| photo->fileReference().isEmpty()) {
+			return;
+		}
+		const auto &fields = input.c_inputPhoto();
+		object.insert(u"cloud_media_type"_q, u"photo"_q);
+		object.insert(u"cloud_media_id"_q, QString::number(fields.vid().v));
+		object.insert(u"cloud_media_access"_q,
+			QString::number(fields.vaccess_hash().v));
+		object.insert(u"cloud_media_reference"_q,
+			QString::fromLatin1(photo->fileReference().toBase64()));
+	} else if (const auto document = media->document()) {
+		const auto input = document->mtpInput();
+		if (input.type() != mtpc_inputDocument
+			|| document->fileReference().isEmpty()) {
+			return;
+		}
+		const auto &fields = input.c_inputDocument();
+		object.insert(u"cloud_media_type"_q, u"document"_q);
+		object.insert(u"cloud_media_id"_q, QString::number(fields.vid().v));
+		object.insert(u"cloud_media_access"_q,
+			QString::number(fields.vaccess_hash().v));
+		object.insert(u"cloud_media_reference"_q,
+			QString::fromLatin1(document->fileReference().toBase64()));
+	}
+}
+
+QJsonObject PublicArchiveRecord(QJsonObject object) {
+	object.remove(u"cloud_media_type"_q);
+	object.remove(u"cloud_media_id"_q);
+	object.remove(u"cloud_media_access"_q);
+	object.remove(u"cloud_media_reference"_q);
+	return object;
+}
+
+QByteArray RecentFilterKey(
+		const QByteArray &macKey,
+		const char *prefix,
+		const QString &value) {
+	return HmacSha256(macKey, QByteArray(prefix) + value.toUtf8()).left(16);
+}
+
+// Older archives have no filter rows. Run the one-time backfill on a separate
+// SQLite connection so opening a large archive does not block the UI thread.
+void MigrateRecentIndex(
+		const QString &path,
+		const QByteArray &aesKey,
+		const QByteArray &macKey) {
+	auto *db = static_cast<sqlite3*>(nullptr);
+	if (sqlite3_open_v2(path.toUtf8().constData(), &db,
+			SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX, nullptr) != SQLITE_OK) {
+		if (db) sqlite3_close_v2(db);
+		return;
+	}
+	const auto close = gsl::finally([&] { sqlite3_close_v2(db); });
+	sqlite3_busy_timeout(db, 5000);
+	auto cursor = QByteArray();
+	auto *savedCursor = static_cast<sqlite3_stmt*>(nullptr);
+	if (sqlite3_prepare_v2(db,
+			"SELECT value FROM archive_meta "
+			"WHERE key='recent_index_cursor'",
+			-1, &savedCursor, nullptr) != SQLITE_OK) {
+		if (savedCursor) sqlite3_finalize(savedCursor);
+		return;
+	}
+	if (sqlite3_step(savedCursor) == SQLITE_ROW) {
+		cursor = QByteArray(
+			static_cast<const char*>(sqlite3_column_blob(savedCursor, 0)),
+			sqlite3_column_bytes(savedCursor, 0));
+	}
+	sqlite3_finalize(savedCursor);
+	for (;;) {
+		auto *read = static_cast<sqlite3_stmt*>(nullptr);
+		const auto query = cursor.isEmpty()
+			? "SELECT r.key,r.nonce,r.tag,r.data,r.ts FROM records r "
+				"LEFT JOIN recent_index i ON i.key=r.key "
+				"WHERE i.key IS NULL ORDER BY r.key LIMIT 256"
+			: "SELECT r.key,r.nonce,r.tag,r.data,r.ts FROM records r "
+				"LEFT JOIN recent_index i ON i.key=r.key "
+				"WHERE r.key>? AND i.key IS NULL ORDER BY r.key LIMIT 256";
+		if (sqlite3_prepare_v2(db, query,
+				-1, &read, nullptr) != SQLITE_OK) {
+			if (read) sqlite3_finalize(read);
+			return;
+		}
+		if (!cursor.isEmpty()) {
+			sqlite3_bind_blob(read, 1,
+				cursor.constData(), cursor.size(), SQLITE_TRANSIENT);
+		}
+		struct Row {
+			QByteArray key, nonce, tag, data;
+			qint64 ts = 0;
+		};
+		auto rows = std::vector<Row>();
+		const auto field = [&](int column) {
+			return QByteArray(
+				static_cast<const char*>(sqlite3_column_blob(read, column)),
+				sqlite3_column_bytes(read, column));
+		};
+		auto step = int();
+		while ((step = sqlite3_step(read)) == SQLITE_ROW) {
+			rows.push_back({ field(0), field(1), field(2), field(3),
+				sqlite3_column_int64(read, 4) });
+		}
+		sqlite3_finalize(read);
+		if (step != SQLITE_DONE) return;
+		if (rows.empty()) break;
+		cursor = rows.back().key;
+		auto *insert = static_cast<sqlite3_stmt*>(nullptr);
+		if (sqlite3_prepare_v2(db,
+				"INSERT OR IGNORE INTO recent_index"
+				"(key,kind_key,peer_key,ts) VALUES(?,?,?,?)",
+				-1, &insert, nullptr) != SQLITE_OK) {
+			if (insert) sqlite3_finalize(insert);
+			return;
+		}
+		if (sqlite3_exec(db, "BEGIN IMMEDIATE", nullptr,
+				nullptr, nullptr) != SQLITE_OK) {
+			sqlite3_finalize(insert);
+			return;
+		}
+		auto ok = true;
+		for (const auto &row : rows) {
+			const auto plain = DecryptRecord(
+				aesKey, row.nonce, row.tag, row.data);
+			const auto object = QJsonDocument::fromJson(plain).object();
+			const auto kind = object.value(u"kind"_q).toString();
+			if (plain.isEmpty() || kind.isEmpty()) {
+				ok = false;
+				break;
+			}
+			const auto kindKey = RecentFilterKey(macKey, "kind:", kind);
+			const auto peerKey = RecentFilterKey(
+				macKey, "peer:", object.value(u"peer"_q).toString());
+			if (kindKey.size() != 16 || peerKey.size() != 16) {
+				ok = false;
+				break;
+			}
+			sqlite3_reset(insert);
+			sqlite3_clear_bindings(insert);
+			sqlite3_bind_blob(insert, 1,
+				row.key.constData(), row.key.size(), SQLITE_TRANSIENT);
+			sqlite3_bind_blob(insert, 2,
+				kindKey.constData(), kindKey.size(), SQLITE_TRANSIENT);
+			sqlite3_bind_blob(insert, 3,
+				peerKey.constData(), peerKey.size(), SQLITE_TRANSIENT);
+			sqlite3_bind_int64(insert, 4, row.ts);
+			if (sqlite3_step(insert) != SQLITE_DONE) {
+				ok = false;
+				break;
+			}
+		}
+		sqlite3_finalize(insert);
+		if (ok) {
+			auto *checkpoint = static_cast<sqlite3_stmt*>(nullptr);
+			ok = sqlite3_prepare_v2(db,
+				"INSERT OR REPLACE INTO archive_meta(key,value) "
+				"VALUES('recent_index_cursor',?)",
+				-1, &checkpoint, nullptr) == SQLITE_OK;
+			if (ok) {
+				sqlite3_bind_blob(checkpoint, 1,
+					cursor.constData(), cursor.size(), SQLITE_TRANSIENT);
+				ok = sqlite3_step(checkpoint) == SQLITE_DONE;
+			}
+			if (checkpoint) sqlite3_finalize(checkpoint);
+		}
+		if (!ok || sqlite3_exec(db, "COMMIT", nullptr,
+				nullptr, nullptr) != SQLITE_OK) {
+			sqlite3_exec(db, "ROLLBACK", nullptr, nullptr, nullptr);
+			return;
+		}
+		QThread::msleep(5);
+	}
+	// New records are indexed in the same transaction as their encrypted row.
+	// Check before enabling the fast path in case a prior write failed.
+	auto *missing = static_cast<sqlite3_stmt*>(nullptr);
+	if (sqlite3_prepare_v2(db,
+			"SELECT 1 FROM records r LEFT JOIN recent_index i "
+			"ON i.key=r.key WHERE i.key IS NULL LIMIT 1",
+			-1, &missing, nullptr) != SQLITE_OK) {
+		if (missing) sqlite3_finalize(missing);
+		return;
+	}
+	const auto complete = (sqlite3_step(missing) == SQLITE_DONE);
+	sqlite3_finalize(missing);
+	if (complete) {
+		sqlite3_exec(db,
+			"INSERT OR REPLACE INTO archive_meta(key,value) "
+			"VALUES('recent_index_v1',1);"
+			"DELETE FROM archive_meta WHERE key='recent_index_cursor';",
+			nullptr, nullptr, nullptr);
+	} else {
+		// A failed historical write must not permanently skip an older key.
+		sqlite3_exec(db,
+			"DELETE FROM archive_meta WHERE key='recent_index_cursor'",
+			nullptr, nullptr, nullptr);
+	}
 }
 
 } // namespace
@@ -263,7 +479,14 @@ MessageArchive::~MessageArchive() {
 }
 
 void MessageArchive::logMessage(not_null<HistoryItem*> item) {
-	if (!item->isRegular() || item->isSponsored()) {
+	if (!item->isRegular() || item->isSponsored()
+		|| (item->media() && item->media()->ttlSeconds())) {
+		return;
+	}
+	const auto peer = item->history()->peer;
+	if (!Core::App().settings().readPref<bool>(
+			"archive-all-deletions", false)
+		&& (!peer->isUser() || peer->isBot() || peer->isSelf())) {
 		return;
 	}
 	if ((_cloudForumId && item->history()->peer->id
@@ -288,7 +511,8 @@ void MessageArchive::logEditTransition(
 		const QString &afterPhoto,
 		const QString &afterDocument,
 		bool nonChannel) {
-	if (existing && (!existing->isRegular() || existing->isSponsored())) {
+	if (existing && (!existing->isRegular() || existing->isSponsored()
+		|| (existing->media() && existing->media()->ttlSeconds()))) {
 		return;
 	}
 	if ((_cloudForumId && peer == QString::number(
@@ -297,7 +521,9 @@ void MessageArchive::logEditTransition(
 			peerFromChannel(ChannelId(_legacyChannelId)).value))) {
 		return;
 	}
-	if (!flush()) {
+	// A loaded item is the pre-edit version. Keep its pending snapshot and
+	// this transition in one ordered transaction instead of forcing two writes.
+	if (!existing && !flush()) {
 		LOG(("Archive: pending snapshots could not be saved before edit."));
 		return;
 	}
@@ -310,6 +536,7 @@ void MessageArchive::logEditTransition(
 		object.insert(u"msg"_q, msg);
 	}
 	object.insert(u"non_channel"_q, nonChannel);
+	object.insert(u"personal_dialog"_q, true);
 	object.insert(u"before_known"_q, known);
 	object.insert(u"after_text"_q, afterText);
 	object.insert(u"after_photo"_q, afterPhoto);
@@ -332,7 +559,14 @@ void MessageArchive::logDeleted(not_null<HistoryItem*> item) {
 void MessageArchive::logDeletedBatch(
 		const std::vector<not_null<HistoryItem*>> &items) {
 	for (const auto item : items) {
-		if (!item->isRegular()) {
+		if (!item->isRegular() || item->isSponsored()
+			|| (item->media() && item->media()->ttlSeconds())) {
+			continue;
+		}
+		const auto peer = item->history()->peer;
+		if (!Core::App().settings().readPref<bool>(
+				"archive-all-deletions", false)
+			&& (!peer->isUser() || peer->isBot() || peer->isSelf())) {
 			continue;
 		}
 		if ((_cloudForumId && item->history()->peer->id
@@ -342,6 +576,7 @@ void MessageArchive::logDeletedBatch(
 			continue;
 		}
 		auto object = SerializeItem(item);
+		AddCloudMediaReference(item, object);
 		enqueue(
 			u"delete"_q,
 			object.value(u"peer"_q).toString(),
@@ -372,6 +607,22 @@ void MessageArchive::logDeletedMissing(
 			// there is no body to show; avoid filling the bounded archive with
 			// uninformative tombstones from unloaded histories.
 			continue;
+		}
+		if (!Core::App().settings().readPref<bool>(
+				"archive-all-deletions", false)) {
+			const auto personal = object.contains(u"personal_dialog"_q)
+				? object.value(u"personal_dialog"_q).toBool()
+				: [&] {
+					const auto id = object.value(u"peer"_q)
+						.toString().toULongLong();
+					const auto dialog = id
+						? _owner->peerLoaded(PeerId(id)) : nullptr;
+					return dialog && dialog->isUser()
+						&& !dialog->isBot() && !dialog->isSelf();
+				}();
+			if (!personal) {
+				continue;
+			}
 		}
 		object.insert(u"before_known"_q, true);
 		const auto actualPeer = object.value(u"peer"_q).toString();
@@ -405,8 +656,12 @@ void MessageArchive::loadRecent(
 	const auto path = _owner->session().local().accountFolder()
 		+ u"archive.ab"_q;
 	const auto key = _aesKey;
+	const auto macKey = _macKey;
+	const auto migrate = !_recentMigrationStarted;
+	_recentMigrationStarted = true;
 	const auto session = &_owner->session();
-	crl::async([path, key, kind, peer, session, done = std::move(done)]() mutable {
+	crl::async([path, key, macKey, migrate, kind, peer, session,
+			done = std::move(done)]() mutable {
 		auto result = RecentResult();
 		auto *db = static_cast<sqlite3*>(nullptr);
 		auto ok = sqlite3_open_v2(
@@ -419,27 +674,59 @@ void MessageArchive::loadRecent(
 		}
 		if (ok) {
 			sqlite3_busy_timeout(db, 5000);
+			auto *complete = static_cast<sqlite3_stmt*>(nullptr);
+			const auto indexed = sqlite3_prepare_v2(db,
+				"SELECT value FROM archive_meta "
+				"WHERE key='recent_index_v1'",
+				-1, &complete, nullptr) == SQLITE_OK
+				&& sqlite3_step(complete) == SQLITE_ROW
+				&& sqlite3_column_int(complete, 0) == 1;
+			if (complete) sqlite3_finalize(complete);
 			// Sort only the small opaque keys and timestamps. Loading encrypted
 			// blobs in a second query keeps the temporary sort much smaller and
 			// avoids a schema write that could stall incoming archive events.
 			auto *order = static_cast<sqlite3_stmt*>(nullptr);
 			auto *record = static_cast<sqlite3_stmt*>(nullptr);
-			ok = sqlite3_prepare_v2(
-				db,
-				"SELECT key, ts FROM records ORDER BY ts DESC",
-				-1,
-				&order,
-				nullptr) == SQLITE_OK;
+			ok = indexed
+				? sqlite3_prepare_v2(db,
+					(peer.isEmpty()
+						? "SELECT key,ts FROM recent_index "
+							"WHERE kind_key=? ORDER BY ts DESC"
+						: "SELECT key,ts FROM recent_index "
+							"WHERE kind_key=? AND peer_key=? ORDER BY ts DESC"),
+					-1, &order, nullptr) == SQLITE_OK
+				: sqlite3_prepare_v2(db,
+					"SELECT key,ts FROM records ORDER BY ts DESC",
+					-1, &order, nullptr) == SQLITE_OK;
 			if (!ok) {
 				LOG(("Archive: recent read failed (order query)."));
+			} else if (indexed) {
+				const auto kindKey = RecentFilterKey(macKey, "kind:", kind);
+				const auto peerKey = RecentFilterKey(macKey, "peer:", peer);
+				sqlite3_bind_blob(order, 1,
+					kindKey.constData(), kindKey.size(), SQLITE_TRANSIENT);
+				if (!peer.isEmpty()) {
+					sqlite3_bind_blob(order, 2,
+						peerKey.constData(), peerKey.size(), SQLITE_TRANSIENT);
+				}
 			}
 			if (ok) {
 				ok = sqlite3_prepare_v2(
 					db,
-					"SELECT nonce, tag, data FROM records WHERE key = ?",
+					"SELECT r.nonce,r.tag,r.data,m.sent,m.media_sent "
+					"FROM records r LEFT JOIN cloud_mirror m ON m.key=r.key "
+					"WHERE r.key = ?",
 					-1,
 					&record,
 					nullptr) == SQLITE_OK;
+				if (!ok) {
+					if (record) sqlite3_finalize(record);
+					record = nullptr;
+					ok = sqlite3_prepare_v2(db,
+						"SELECT nonce,tag,data,NULL,NULL "
+						"FROM records WHERE key=?",
+						-1, &record, nullptr) == SQLITE_OK;
+				}
 				if (!ok) {
 					LOG(("Archive: recent read failed (record query)."));
 				}
@@ -477,11 +764,21 @@ void MessageArchive::loadRecent(
 						LOG(("Archive: recent read failed (record authentication or format)."));
 						break;
 					}
-					const auto object = json.object();
+					auto object = json.object();
 					if (object.value(u"kind"_q).toString() == kind
 						&& (peer.isEmpty()
 							|| object.value(u"peer"_q).toString() == peer)) {
-						result.rows.push_back(object);
+						object.insert(u"media_reference_available"_q,
+							object.contains(u"cloud_media_type"_q));
+						object.insert(u"cloud_queued"_q,
+							sqlite3_column_type(record, 3) != SQLITE_NULL);
+						object.insert(u"cloud_sent"_q,
+							sqlite3_column_int(record, 3) == 1);
+						if (sqlite3_column_type(record, 4) != SQLITE_NULL) {
+							object.insert(u"media_sent"_q,
+								sqlite3_column_int(record, 4) == 1);
+						}
+						result.rows.push_back(PublicArchiveRecord(object));
 					}
 				}
 				if (ok && result.rows.size() < 50) {
@@ -505,6 +802,9 @@ void MessageArchive::loadRecent(
 		crl::on_main(session, [done = std::move(done), result = std::move(result)]() mutable {
 			done(std::move(result));
 		});
+		if (migrate) {
+			MigrateRecentIndex(path, key, macKey);
+		}
 	});
 }
 
@@ -524,28 +824,6 @@ void MessageArchive::logPresence(not_null<PeerData*> peer) {
 	object.insert(u"peer"_q, QString::number(peer->id.value));
 	object.insert(u"online"_q, user->lastseen().isOnline(base::unixtime::now()));
 	enqueue(u"presence"_q, object.value(u"peer"_q).toString(), QString(), object);
-}
-
-void MessageArchive::logSavedMedia(
-		const QString &kind,
-		const QString &path,
-		const QString &peer,
-		const QString &msg,
-		const QString &senderName,
-		const QString &peerName) {
-	if (kind != u"saved_ttl_photo"_q && kind != u"saved_story"_q) {
-		return;
-	}
-	auto object = QJsonObject();
-	object.insert(u"path"_q, path);
-	object.insert(u"peer"_q, peer);
-	object.insert(u"msg"_q, msg);
-	object.insert(u"from_name"_q, senderName);
-	object.insert(u"peer_name"_q, peerName);
-	enqueue(kind, peer, msg, object);
-	if (!flush()) {
-		LOG(("Archive: saved media reference could not be stored."));
-	}
 }
 
 void MessageArchive::logProfileChange(not_null<PeerData*> peer) {
@@ -621,6 +899,12 @@ void MessageArchive::enqueue(
 		&& object.value(u"non_channel"_q).toBool()
 		? HmacSha256(_macKey, (u"nonchannel:"_q + msg).toUtf8()).left(16)
 		: QByteArray();
+	const auto kindKey = RecentFilterKey(_macKey, "kind:", kind);
+	const auto peerKey = RecentFilterKey(_macKey, "peer:", peer);
+	if (kindKey.size() != 16 || peerKey.size() != 16) {
+		LOG(("Archive: filter key creation failed."));
+		return;
+	}
 	_pending.push_back({
 		.key = indexKey.left(16),
 		.nonce = encrypted->nonce,
@@ -630,6 +914,8 @@ void MessageArchive::enqueue(
 		.cloudMirror = cloudMirror,
 		.stateKey = stateKey,
 		.lookupKey = lookupKey,
+		.kindKey = kindKey,
+		.peerKey = peerKey,
 		.stateReplace = (kind == u"edit"_q),
 	});
 	if (_pending.size() >= kMaxPending) {
@@ -705,12 +991,29 @@ bool MessageArchive::ensureOpened() {
 		_broken = true;
 		return false;
 	}
+	if (sqlite3_exec(_db,
+			"CREATE TABLE IF NOT EXISTS recent_index("
+			"key BLOB PRIMARY KEY,kind_key BLOB NOT NULL,"
+			"peer_key BLOB NOT NULL,ts INTEGER NOT NULL"
+			") WITHOUT ROWID;"
+			"CREATE INDEX IF NOT EXISTS recent_kind_ts "
+			"ON recent_index(kind_key,ts DESC);"
+			"CREATE INDEX IF NOT EXISTS recent_kind_peer_ts "
+			"ON recent_index(kind_key,peer_key,ts DESC);"
+			"CREATE TABLE IF NOT EXISTS archive_meta("
+			"key TEXT PRIMARY KEY,value BLOB NOT NULL"
+			") WITHOUT ROWID;",
+			nullptr, nullptr, nullptr) != SQLITE_OK) {
+		_broken = true;
+		return false;
+	}
 	if (sqlite3_exec(
 			_db,
 			"CREATE TABLE IF NOT EXISTS cloud_mirror("
 			"key BLOB PRIMARY KEY, sent INTEGER NOT NULL DEFAULT 0, "
 			"destination INTEGER NOT NULL DEFAULT 1, "
-			"retry_after INTEGER NOT NULL DEFAULT 0"
+			"retry_after INTEGER NOT NULL DEFAULT 0, "
+			"media_sent INTEGER"
 			") WITHOUT ROWID;"
 			"CREATE TABLE IF NOT EXISTS cloud_config("
 			"key TEXT PRIMARY KEY, nonce BLOB, tag BLOB, data BLOB"
@@ -751,6 +1054,17 @@ bool MessageArchive::ensureOpened() {
 				nullptr, nullptr, nullptr) != SQLITE_OK) {
 			_mirrorDisabled = true;
 			LOG(("Archive: cloud retry migration failed."));
+		}
+		auto *mediaProbe = static_cast<sqlite3_stmt*>(nullptr);
+		const auto hasMediaStatus = sqlite3_prepare_v2(
+			_db, "SELECT media_sent FROM cloud_mirror LIMIT 1",
+			-1, &mediaProbe, nullptr) == SQLITE_OK;
+		if (mediaProbe) sqlite3_finalize(mediaProbe);
+		if (!hasMediaStatus && sqlite3_exec(_db,
+				"ALTER TABLE cloud_mirror ADD COLUMN media_sent INTEGER",
+				nullptr, nullptr, nullptr) != SQLITE_OK) {
+			_mirrorDisabled = true;
+			LOG(("Archive: cloud media status migration failed."));
 		}
 		loadCloudDestinations();
 		if (!_legacyChannelId && !_mirrorDisabled) {
@@ -923,6 +1237,16 @@ bool MessageArchive::flush() {
 		_mirrorDisabled = true;
 		LOG(("Archive: cloud mirror queue unavailable."));
 	}
+	auto *recentStmt = static_cast<sqlite3_stmt*>(nullptr);
+	if (sqlite3_prepare_v2(_db,
+			"INSERT OR IGNORE INTO recent_index"
+			"(key,kind_key,peer_key,ts) VALUES(?,?,?,?)",
+			-1, &recentStmt, nullptr) != SQLITE_OK) {
+		sqlite3_finalize(stmt);
+		if (mirrorStmt) sqlite3_finalize(mirrorStmt);
+		_broken = true;
+		return false;
+	}
 	auto *stateInsert = static_cast<sqlite3_stmt*>(nullptr);
 	auto *stateReplace = static_cast<sqlite3_stmt*>(nullptr);
 	auto *lookupStmt = static_cast<sqlite3_stmt*>(nullptr);
@@ -947,6 +1271,7 @@ bool MessageArchive::flush() {
 	const auto finishStatements = [&] {
 		sqlite3_finalize(stmt);
 		if (mirrorStmt) sqlite3_finalize(mirrorStmt);
+		sqlite3_finalize(recentStmt);
 		if (stateInsert) sqlite3_finalize(stateInsert);
 		if (stateReplace) sqlite3_finalize(stateReplace);
 		if (lookupStmt) sqlite3_finalize(lookupStmt);
@@ -986,7 +1311,23 @@ bool MessageArchive::flush() {
 			ok = false;
 			break;
 		}
-		_rows += sqlite3_changes(_db);
+		const auto inserted = sqlite3_changes(_db);
+		_rows += inserted;
+		if (inserted) {
+			sqlite3_reset(recentStmt);
+			sqlite3_clear_bindings(recentStmt);
+			sqlite3_bind_blob(recentStmt, 1, record.key.constData(),
+				record.key.size(), SQLITE_TRANSIENT);
+			sqlite3_bind_blob(recentStmt, 2, record.kindKey.constData(),
+				record.kindKey.size(), SQLITE_TRANSIENT);
+			sqlite3_bind_blob(recentStmt, 3, record.peerKey.constData(),
+				record.peerKey.size(), SQLITE_TRANSIENT);
+			sqlite3_bind_int64(recentStmt, 4, record.ts);
+			if (sqlite3_step(recentStmt) != SQLITE_DONE) {
+				ok = false;
+				break;
+			}
+		}
 		if (!record.stateKey.isEmpty()) {
 			auto *state = record.stateReplace ? stateReplace : stateInsert;
 			sqlite3_reset(state);
@@ -1106,7 +1447,14 @@ bool ExportArchive(
 			LOG(("Archive: export skipped a corrupted record."));
 			continue;
 		}
-		if ((!first && !write(",")) || !write(plain)) {
+		const auto parsed = QJsonDocument::fromJson(plain);
+		if (!parsed.isObject()) {
+			LOG(("Archive: export skipped an invalid record."));
+			continue;
+		}
+		const auto output = QJsonDocument(PublicArchiveRecord(
+			parsed.object())).toJson(QJsonDocument::Compact);
+		if ((!first && !write(",")) || !write(output)) {
 			return false;
 		}
 		first = false;
@@ -1795,18 +2143,25 @@ void MessageArchive::pauseCloudMirror(
 	}
 }
 
-void MessageArchive::markCloudSent(const QByteArray &key) {
+void MessageArchive::markCloudSent(
+		const QByteArray &key,
+		std::optional<bool> mediaSent) {
 	auto *stmt = static_cast<sqlite3_stmt*>(nullptr);
 	if (sqlite3_prepare_v2(
 			_db,
-			"UPDATE cloud_mirror SET sent=1 WHERE key=?",
+			"UPDATE cloud_mirror SET sent=1,media_sent=? WHERE key=?",
 			-1,
 			&stmt,
 			nullptr) != SQLITE_OK) {
 		_mirrorDisabled = true;
 		return;
 	}
-	sqlite3_bind_blob(stmt, 1, key.constData(), key.size(), SQLITE_TRANSIENT);
+	if (mediaSent) {
+		sqlite3_bind_int(stmt, 1, *mediaSent ? 1 : 0);
+	} else {
+		sqlite3_bind_null(stmt, 1);
+	}
+	sqlite3_bind_blob(stmt, 2, key.constData(), key.size(), SQLITE_TRANSIENT);
 	const auto saved = (sqlite3_step(stmt) == SQLITE_DONE);
 	sqlite3_finalize(stmt);
 	if (!saved) {
@@ -1817,7 +2172,7 @@ void MessageArchive::markCloudSent(const QByteArray &key) {
 	}
 }
 
-void MessageArchive::sendCloudSnapshot() {
+void MessageArchive::sendCloudSnapshot(bool textOnly) {
 	auto *stmt = static_cast<sqlite3_stmt*>(nullptr);
 	if (sqlite3_prepare_v2(
 			_db,
@@ -1904,36 +2259,99 @@ void MessageArchive::sendCloudSnapshot() {
 		}
 		topicId = topic.id;
 	}
-	const auto label = (object.value(u"kind"_q).toString() == u"edit"_q)
-		? u"До изменения"_q
-		: u"Перед удалением"_q;
+	const auto edited = (object.value(u"kind"_q).toString() == u"edit"_q);
+	const auto label = edited
+		? u"✏️ Сообщение изменено"_q
+		: u"🗑 Сообщение удалено"_q;
 	const auto peerName = object.value(u"peer_name"_q).toString();
 	const auto senderName = object.value(u"from_name"_q).toString();
 	const auto msgValue = object.value(u"msg"_q);
 	const auto messageId = msgValue.isString()
 		? msgValue.toString()
 		: QString::number(qint64(msgValue.toDouble()));
+	const auto sentAt = qint64(object.value(u"date"_q).toDouble());
+	const auto mediaType = object.value(u"cloud_media_type"_q).toString();
+	auto inputMedia = MTPInputMedia();
+	auto hasMedia = false;
+	if (!textOnly && (mediaType == u"photo"_q
+			|| mediaType == u"document"_q)) {
+		auto idValid = false;
+		auto accessValid = false;
+		const auto id = object.value(u"cloud_media_id"_q).toString(
+		).toULongLong(&idValid);
+		const auto access = object.value(u"cloud_media_access"_q).toString(
+		).toULongLong(&accessValid);
+		const auto reference = QByteArray::fromBase64(
+			object.value(u"cloud_media_reference"_q).toString().toLatin1());
+		if (idValid && id && accessValid && access && !reference.isEmpty()) {
+			if (mediaType == u"photo"_q) {
+				inputMedia = MTP_inputMediaPhoto(
+					MTP_flags(0),
+					MTP_inputPhoto(
+						MTP_long(id), MTP_long(access), MTP_bytes(reference)),
+					MTP_int(0),
+					MTPInputDocument());
+				hasMedia = true;
+			} else {
+				inputMedia = MTP_inputMediaDocument(
+					MTP_flags(0),
+					MTP_inputDocument(
+						MTP_long(id), MTP_long(access), MTP_bytes(reference)),
+					MTPInputPhoto(),
+					MTP_int(0),
+					MTP_int(0),
+					MTPstring());
+				hasMedia = true;
+			}
+		}
+	}
+	const auto excerpt = [maxLength = hasMedia ? 180 : 1200](
+			const QString &value) {
+		if (value.isEmpty()) return u"[Без текста]"_q;
+		return value.size() > maxLength
+			? value.left(maxLength)
+				+ u"…\n[Текст сокращён; полная версия в локальном архиве]"_q
+			: value;
+	};
 	auto text = label
 		+ u"\nЧат: "_q + (peerName.isEmpty()
 			? object.value(u"peer"_q).toString()
-			: peerName)
+			: peerName).left(120)
 		+ u"\nОтправитель: "_q + (senderName.isEmpty()
 			? object.value(u"from"_q).toString()
-			: senderName)
-		+ u"\nСообщение ID: "_q + messageId
-		+ u"\nДата: "_q + QDateTime::fromSecsSinceEpoch(
-			qint64(object.value(u"date"_q).toDouble())
+			: senderName).left(120)
+		+ u"\nID: "_q + messageId
+		+ u"\nСохранено: "_q + QDateTime::fromMSecsSinceEpoch(
+			qint64(object.value(u"ts"_q).toDouble())
 		).toString(Qt::ISODate)
-		+ u"\n\nБыло: "_q + object.value(u"text"_q).toString();
-	if (object.value(u"kind"_q).toString() == u"edit"_q) {
-		text += u"\nСтало: "_q + object.value(u"after_text"_q).toString();
+		+ (sentAt > 0
+			? u"\nДата сообщения: "_q
+				+ QDateTime::fromSecsSinceEpoch(sentAt).toString(Qt::ISODate)
+			: QString())
+		+ u"\n\nБыло\n"_q;
+	text += (object.value(u"before_known"_q).toBool(true)
+		? excerpt(object.value(u"text"_q).toString())
+		: u"[Прежний текст не получен этим устройством]"_q);
+	if (object.value(u"before_may_be_stale"_q).toBool()) {
+		text += u"\n[Версия из старого архива; могла быть изменена ранее]"_q;
 	}
-	if (object.contains(u"photo"_q) || object.contains(u"document"_q)) {
-		text += u"\n\n[Медиа не скопировано; метаданные в локальном архиве]"_q;
+	if (edited) {
+		text += u"\n\nСтало\n"_q
+			+ excerpt(object.value(u"after_text"_q).toString());
 	}
-	if (text.size() > 3500) {
-		text = text.left(3500)
-			+ u"\n\n[Текст сокращён; полная версия в локальном архиве]"_q;
+	if (!hasMedia && (object.contains(u"photo"_q)
+		|| object.contains(u"document"_q)
+		|| object.value(u"after_photo"_q).toString().size()
+		|| object.value(u"after_document"_q).toString().size())) {
+		text += textOnly
+			? u"\n\n[Вложение не удалось сохранить в архивном чате]"_q
+			: u"\n\n[Вложение недоступно для копирования; метаданные в локальном архиве]"_q;
+	}
+	if (hasMedia && text.size() > 1000) {
+		// Keep the end of the caption: it contains the edited result.
+		text = text.left(500)
+			+ u"\n[… подпись сокращена …]\n"_q
+			+ text.right(470);
 	}
 	const auto randomBytes = HmacSha256(_macKey, key + " cloud mirror");
 	if (randomBytes.size() != 32) {
@@ -1949,52 +2367,43 @@ void MessageArchive::sendCloudSnapshot() {
 	}
 	_mirrorRequestActive = true;
 	const auto alive = std::weak_ptr<bool>(_alive);
-	using Flag = MTPmessages_SendMessage::Flag;
-	_owner->session().api().request(MTPmessages_SendMessage(
-		MTP_flags(Flag::f_no_webpage | Flag::f_silent
-			| (legacy ? Flag() : Flag::f_reply_to)),
-		MTP_inputPeerChannel(
-			MTP_long(legacy ? _legacyChannelId : _cloudForumId),
-			MTP_long(legacy ? _legacyAccessHash : _cloudForumAccessHash)),
-		(legacy
-			? MTPInputReplyTo()
-			: MTP_inputReplyToMessage(
-				MTP_flags(0),
-				MTP_int(topicId),
-				MTP_int(0),
-				MTPInputPeer(),
-				MTPstring(),
-				MTPVector<MTPMessageEntity>(),
-				MTP_int(0),
-				MTPInputPeer(),
-				MTP_int(0),
-				MTP_bytes(QByteArray()))),
-		MTP_string(text),
-		MTP_long(randomId),
-		MTPReplyMarkup(),
-		MTPVector<MTPMessageEntity>(),
-		MTP_int(0),
-		MTP_int(0),
-		MTPInputPeer(),
-		MTPInputQuickReplyShortcut(),
-		MTP_long(0),
-		MTP_long(0),
-		MTPSuggestedPost(),
-		MTPInputRichMessage()
-	)).done([=](const MTPUpdates &updates) {
+	const auto inputPeer = MTP_inputPeerChannel(
+		MTP_long(legacy ? _legacyChannelId : _cloudForumId),
+		MTP_long(legacy ? _legacyAccessHash : _cloudForumAccessHash));
+	const auto replyTo = legacy
+		? MTPInputReplyTo()
+		: MTP_inputReplyToMessage(
+			MTP_flags(0),
+			MTP_int(topicId),
+			MTP_int(0),
+			MTPInputPeer(),
+			MTPstring(),
+			MTPVector<MTPMessageEntity>(),
+			MTP_int(0),
+			MTPInputPeer(),
+			MTP_int(0),
+			MTP_bytes(QByteArray()));
+	const auto done = [=](const MTPUpdates &updates) {
 		if (alive.expired()) {
 			return;
 		}
 		_mirrorRequestActive = false;
 		_owner->session().api().applyUpdates(updates);
-		markCloudSent(key);
-	}).fail([=](const MTP::Error &error) {
+		markCloudSent(key, hasMedia);
+	};
+	const auto failed = [=](const MTP::Error &error) {
 		if (alive.expired()) {
 			return;
 		}
 		_mirrorRequestActive = false;
 		if (error.type() == u"RANDOM_ID_DUPLICATE"_q) {
-			markCloudSent(key);
+			markCloudSent(key, std::nullopt);
+		} else if (hasMedia && (error.type().startsWith(u"FILE_REFERENCE"_q)
+			|| error.type() == u"MEDIA_INVALID"_q
+			|| error.type() == u"PHOTO_INVALID"_q
+			|| error.type() == u"DOCUMENT_INVALID"_q
+			|| error.type() == u"CHAT_FORWARDS_RESTRICTED"_q)) {
+			sendCloudSnapshot(true);
 		} else if (!legacy && error.type() == u"PEER_ID_INVALID"_q) {
 			// A stale peer cache or a temporary server error must not erase the
 			// saved forum identity and start a second archive group.
@@ -2030,7 +2439,48 @@ void MessageArchive::sendCloudSnapshot() {
 			pauseCloudMirror(error.type(), delay);
 			deferCloudEvent(key, delay);
 		}
-	}).send();
+	};
+	if (hasMedia) {
+		using Flag = MTPmessages_SendMedia::Flag;
+		_owner->session().api().request(MTPmessages_SendMedia(
+			MTP_flags(Flag::f_silent
+				| (legacy ? Flag() : Flag::f_reply_to)),
+			inputPeer,
+			replyTo,
+			inputMedia,
+			MTP_string(text),
+			MTP_long(randomId),
+			MTPReplyMarkup(),
+			MTPVector<MTPMessageEntity>(),
+			MTP_int(0),
+			MTP_int(0),
+			MTPInputPeer(),
+			MTPInputQuickReplyShortcut(),
+			MTP_long(0),
+			MTP_long(0),
+			MTPSuggestedPost()
+		)).done(done).fail(failed).send();
+	} else {
+		using Flag = MTPmessages_SendMessage::Flag;
+		_owner->session().api().request(MTPmessages_SendMessage(
+			MTP_flags(Flag::f_no_webpage | Flag::f_silent
+				| (legacy ? Flag() : Flag::f_reply_to)),
+			inputPeer,
+			replyTo,
+			MTP_string(text),
+			MTP_long(randomId),
+			MTPReplyMarkup(),
+			MTPVector<MTPMessageEntity>(),
+			MTP_int(0),
+			MTP_int(0),
+			MTPInputPeer(),
+			MTPInputQuickReplyShortcut(),
+			MTP_long(0),
+			MTP_long(0),
+			MTPSuggestedPost(),
+			MTPInputRichMessage()
+		)).done(done).fail(failed).send();
+	}
 }
 
 } // namespace Data

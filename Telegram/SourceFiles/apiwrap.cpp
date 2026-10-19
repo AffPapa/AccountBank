@@ -216,11 +216,11 @@ TimeId UnixtimeFromMsgId(mtpMsgId msgId) {
 
 ApiWrap::ApiWrap(not_null<Main::Session*> session)
 : MTP::Sender(&session->account().mtp())
+, _copyUploadsTimer([=] { tickCopyUploads(); })
 , _session(session)
 , _messageDataResolveDelayed([=] { resolveMessageDatas(); })
 , _webPagesTimer([=] { resolveWebPages(); })
 , _draftsSaveTimer([=] { saveDraftsToCloud(); })
-, _copyUploadsTimer([=] { tickCopyUploads(); })
 , _featuredSetsReadTimer([=] { readFeaturedSets(); })
 , _dialogsLoadState(std::make_unique<DialogsLoadState>())
 , _fileLoader(std::make_unique<TaskQueue>(kFileLoaderQueueStopTimeout))

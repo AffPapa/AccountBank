@@ -48,8 +48,25 @@ if (NOT DESKTOP_APP_USE_PACKAGED AND WIN32)
 endif()
 
 include(cmake/variables.cmake)
-# Optional, ignored local API credentials. Keep them out of command lines and Git.
-include("${CMAKE_CURRENT_SOURCE_DIR}/accountbank-api.local.cmake" OPTIONAL)
+set(ACCOUNTBANK_QT_PREFIX "" CACHE PATH "Optional AccountBank Qt prefix on macOS")
+if (APPLE AND ACCOUNTBANK_QT_PREFIX)
+    list(PREPEND CMAKE_PREFIX_PATH "${ACCOUNTBANK_QT_PREFIX}")
+endif()
+# Keep API credentials in an ignored file, never in build command arguments.
+option(ACCOUNTBANK_PUBLIC_RELEASE "Check requirements for a public release" OFF)
+set(accountbank_api_file "${CMAKE_CURRENT_SOURCE_DIR}/accountbank-api.local.cmake")
+if (ACCOUNTBANK_PUBLIC_RELEASE)
+    if (NOT EXISTS "${accountbank_api_file}"
+        OR IS_SYMLINK "${accountbank_api_file}")
+        message(FATAL_ERROR "A local API config is required for public release")
+    endif()
+endif()
+include("${accountbank_api_file}" OPTIONAL)
+if (ACCOUNTBANK_PUBLIC_RELEASE
+    AND (TDESKTOP_API_ID STREQUAL "17349" OR TDESKTOP_API_ID STREQUAL "0"
+        OR TDESKTOP_API_HASH STREQUAL ""))
+    message(FATAL_ERROR "Public release requires a non-test Telegram API ID")
+endif()
 # AccountBank must never launch Telegram Desktop's upstream updater. A build
 # configured with a special target may otherwise enable it by default.
 if (NOT DESKTOP_APP_DISABLE_AUTOUPDATE)
@@ -67,6 +84,9 @@ include(cmake/target_prepare_qrc.cmake)
 
 include(cmake/options.cmake)
 include(cmake/external/qt/package.cmake)
+if (APPLE AND ACCOUNTBANK_QT_PREFIX)
+    set(qt_loc "${ACCOUNTBANK_QT_PREFIX}")
+endif()
 
 set(desktop_app_skip_libs
     glibmm

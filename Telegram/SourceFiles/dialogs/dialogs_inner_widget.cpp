@@ -396,6 +396,22 @@ InnerWidget::InnerWidget(
 
 	Ui::ScheduleThanosEffectWarmUp(&session(), lifetime());
 
+	const auto compactChatList = lifetime().make_state<bool>(
+		Core::App().settings().compactChatList());
+	Core::App().settings().saveDelayedRequests(
+	) | rpl::on_next([=] {
+		const auto next = Core::App().settings().compactChatList();
+		if (*compactChatList == next) {
+			return;
+		}
+		*compactChatList = next;
+		_shownList->updateHeights(_narrowRatio);
+		if (_state == WidgetState::Filtered && !_filter.isEmpty()) {
+			refreshFilterResults();
+		}
+		refresh();
+	}, lifetime());
+
 	rpl::merge(
 		session().settings().archiveCollapsedChanges() | rpl::map_to(false),
 		session().data().chatsFilters().changed() | rpl::map_to(true),
