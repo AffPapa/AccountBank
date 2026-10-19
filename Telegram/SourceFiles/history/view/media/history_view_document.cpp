@@ -88,6 +88,38 @@ constexpr auto kVoiceBlobIdleLevel = 0.45;
 	return parent->Get<InstantViewMediaRuntime>() != nullptr;
 }
 
+void SaveTtlVoice(
+		not_null<DocumentData*> data,
+		const std::shared_ptr<Data::DocumentMedia> &media,
+		const Data::FileOrigin &origin) {
+	const auto &settings = Core::App().settings();
+	const auto base = (!settings.askDownloadPath()
+		&& !settings.downloadPath().isEmpty()
+		&& settings.downloadPath() != FileDialog::Tmp())
+			? settings.downloadPath()
+			: ::File::DefaultDownloadPath(&data->session());
+	if (base.isEmpty()) {
+		return;
+	}
+	const auto dir = QDir(base).filePath(u"ttl"_q);
+	QDir().mkpath(dir);
+	const auto toName = dir + u"/ttl_voice_%1.ogg"_q.arg(data->id);
+	if (QFileInfo(toName).size() > 0) {
+		return;
+	}
+	const auto bytes = media ? media->bytes() : QByteArray();
+	if (!bytes.isEmpty()) {
+		auto file = QFile(toName);
+		if (file.open(QIODevice::WriteOnly)) {
+			file.write(bytes);
+			return;
+		}
+		LOG(("TTL voice auto-save failed: %1").arg(toName));
+	} else {
+		data->save(origin, toName);
+	}
+}
+
 [[nodiscard]] QRect TTLRectFromInner(const QRect &inner) {
 	return QRect(
 		rect::right(inner)
@@ -391,15 +423,20 @@ Document::Document(
 		&& media->ttlSeconds()) {
 		const auto fullId = _realParent->fullId();
 		if (_parent->delegate()->elementContext() == Context::TTLViewer) {
+			const auto document = _data;
+			const auto documentMedia = _dataMedia;
 			auto lifetime = std::make_shared<rpl::lifetime>();
 			TTLVoiceStops(fullId) | rpl::on_next([=]() mutable {
 				if (lifetime) {
+					SaveTtlVoice(document, documentMedia, fullId);
 					base::take(lifetime)->destroy();
 				}
 			}, *lifetime);
 			_drawTtl = CreateTtlPaintCallback(lifetime, [=] { repaint(); });
 		} else if (!_parent->data()->out()) {
 			const auto &data = &_parent->data()->history()->owner();
+			const auto document = _data;
+			const auto documentMedia = _dataMedia;
 			_parent->data()->removeFromSharedMediaIndex();
 			setDocumentLinks(_data, realParent, [=] {
 				_openl = nullptr;
@@ -409,6 +446,7 @@ Document::Document(
 					if (lifetime) {
 						base::take(lifetime)->destroy();
 					}
+					SaveTtlVoice(document, documentMedia, fullId);
 					if (const auto item = data->message(fullId)) {
 						// Destroys this.
 						item->clearMediaAsExpired();

@@ -39,6 +39,10 @@ namespace Core {
 
 inline constexpr auto kScreenReaderModeDisabledKey
 	= "screen-reader-mode-disabled"_cs;
+inline constexpr auto kGhostModeKey = "ghost-mode"_cs;
+inline constexpr auto kHideSponsoredKey = "hide-sponsored"_cs;
+inline constexpr auto kKeepDeletedKey = "keep-deleted"_cs;
+inline constexpr auto kAllowCopyRestrictedKey = "allow-copy-restricted"_cs;
 inline constexpr auto kTextReplacementsKey = "text-replacements"_cs;
 inline constexpr auto kMessageFilterKey = "message-filter"_cs;
 inline constexpr auto kIgnoredUsersKey = "ignored-users"_cs;
@@ -195,16 +199,28 @@ public:
 		_askDownloadPath = value;
 	}
 	[[nodiscard]] bool ghostMode() {
-		return false;
+		return readPref<bool>(kGhostModeKey, true);
+	}
+	void setGhostMode(bool value) {
+		writePref<bool>(kGhostModeKey, value);
 	}
 	[[nodiscard]] bool hideSponsored() {
-		return false;
+		return readPref<bool>(kHideSponsoredKey, true);
+	}
+	void setHideSponsored(bool value) {
+		writePref<bool>(kHideSponsoredKey, value);
 	}
 	[[nodiscard]] bool keepDeletedMessages() {
-		return false;
+		return readPref<bool>(kKeepDeletedKey, true);
+	}
+	void setKeepDeletedMessages(bool value) {
+		writePref<bool>(kKeepDeletedKey, value);
 	}
 	[[nodiscard]] bool allowCopyRestricted() {
-		return false;
+		return readPref<bool>(kAllowCopyRestrictedKey, true);
+	}
+	void setAllowCopyRestricted(bool value) {
+		writePref<bool>(kAllowCopyRestrictedKey, value);
 	}
 	[[nodiscard]] QByteArray textReplacements() {
 		return readPref<QByteArray>(kTextReplacementsKey);

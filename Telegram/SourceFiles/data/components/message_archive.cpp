@@ -844,6 +844,23 @@ void MessageArchive::logProfileChange(not_null<PeerData*> peer) {
 		object);
 }
 
+void MessageArchive::logSavedMedia(
+		const QString &kind,
+		const QString &path,
+		const QString &peer,
+		const QString &msg,
+		const QString &fromName,
+		const QString &peerName) {
+	auto object = QJsonObject();
+	object.insert(u"kind"_q, kind);
+	object.insert(u"path"_q, path);
+	object.insert(u"peer"_q, peer);
+	object.insert(u"msg"_q, msg);
+	object.insert(u"from_name"_q, fromName);
+	object.insert(u"peer_name"_q, peerName);
+	enqueue(kind, peer, msg, object);
+}
+
 void MessageArchive::enqueue(
 		const QString &kind,
 		const QString &peer,

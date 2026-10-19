@@ -58,6 +58,13 @@ public:
 	void logRead(not_null<History*> history, MsgId upTo);
 	void logPresence(not_null<PeerData*> peer);
 	void logProfileChange(not_null<PeerData*> peer);
+	void logSavedMedia(
+		const QString &kind,
+		const QString &path,
+		const QString &peer,
+		const QString &msg,
+		const QString &fromName,
+		const QString &peerName);
 	[[nodiscard]] bool exportTo(const QString &path);
 	void exportAsync(const QString &path, Fn<void(bool)> done);
 	[[nodiscard]] bool exportInProgress() const { return _exportActive; }
