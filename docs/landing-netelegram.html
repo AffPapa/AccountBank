@@ -3,18 +3,17 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>NeTelegram для Mac — история правок и удалённых сообщений Telegram</title>
-<meta name="description" content="Неофициальный клиент Telegram для Mac: история правок и удалённых сообщений в личных диалогах, локальный архив, сравнение версий и архивный чат с темами. Beta для Apple Silicon.">
-<link rel="canonical" href="https://netelegram-mac.iryadom.chatgpt.site/">
+<title>NeTelegram для Mac — архив правок и удалённых, автосейв сгорающего контента</title>
+<meta name="description" content="Клиент Telegram для macOS: история правок и удалённых сообщений, автосохранение самоуничтожающихся фото, видео, войсов и сторис, пересылка из защищённых чатов, режим невидимки и 30 аккаунтов в одном окне.">
 <meta name="robots" content="index,follow">
+<link rel="canonical" href="https://netelegram-mac.iryadom.chatgpt.site/">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="NeTelegram">
 <meta property="og:url" content="https://netelegram-mac.iryadom.chatgpt.site/">
-<meta property="og:title" content="NeTelegram — история правок и удалений в личных чатах">
-<meta property="og:description" content="Локальный архив личных диалогов, сравнение версий сообщения и архивный чат с темами.">
+<meta property="og:title" content="NeTelegram — твои сообщения, твои правила">
+<meta property="og:description" content="Архив правок и удалённых, автосейв сгорающего контента, пересылка из защищённых чатов, режим невидимки.">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
-<script>document.documentElement.classList.add('js')</script>
-<script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"NeTelegram","applicationCategory":"CommunicationApplication","operatingSystem":"macOS 12+ (Apple Silicon)","softwareVersion":"0.1.0-beta.1","url":"https://netelegram-mac.iryadom.chatgpt.site/","downloadUrl":"https://github.com/AffPapa/AccountBank/releases/download/netelegram-v0.1.0-beta.1/NeTelegram-macOS-arm64.zip"}</script>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"NeTelegram","applicationCategory":"CommunicationApplication","operatingSystem":"macOS 12+ (Apple Silicon)","softwareVersion":"0.1.0-beta.2","url":"https://netelegram-mac.iryadom.chatgpt.site/","downloadUrl":"https://github.com/AffPapa/AccountBank/releases/download/netelegram-v0.1.0-beta.2/NeTelegram-macOS-arm64.zip"}</script>
 <style>
 :root {
 	--bg: #0a0e17;
@@ -273,7 +272,7 @@ footer { border-top: 1px solid var(--line); padding: 34px 0 44px; margin-top: 30
 .foot { display: flex; justify-content: space-between; gap: 20px; flex-wrap: wrap; font-size: 13px; color: var(--dim); }
 
 /* REVEAL */
-.js .rv { opacity: 0; transform: translateY(26px); transition: opacity .7s ease, transform .7s ease; }
+.rv { opacity: 0; transform: translateY(26px); transition: opacity .7s ease, transform .7s ease; }
 .rv.on { opacity: 1; transform: none; }
 
 @media (max-width: 900px) {
@@ -281,7 +280,7 @@ footer { border-top: 1px solid var(--line); padding: 34px 0 44px; margin-top: 30
 	.hero p.sub { max-width: 100%; }
 }
 @media (prefers-reduced-motion: reduce) {
-	.js .rv { opacity: 1; transform: none; transition: none; }
+	.rv { opacity: 1; transform: none; transition: none; }
 	html { scroll-behavior: auto; }
 }
 </style>
@@ -290,7 +289,7 @@ footer { border-top: 1px solid var(--line); padding: 34px 0 44px; margin-top: 30
 
 <nav>
 	<div class="wrap nav-in">
-		<a class="logo" href="/"><span class="logo-mark">N</span>NeTelegram</a>
+		<a class="logo" href="#"><span class="logo-mark">N</span>NeTelegram</a>
 		<div class="nav-links">
 			<a href="#features">Функции</a>
 			<a href="#archive">Архив</a>
@@ -305,14 +304,14 @@ footer { border-top: 1px solid var(--line); padding: 34px 0 44px; margin-top: 30
 	<div class="wrap hero-in">
 		<div>
 			<span class="kicker">macOS · Apple Silicon <span class="badge-beta">v0.1 beta</span></span>
-			<h1>История сообщений.<br><span class="grad">Контекст остаётся.</span></h1>
-			<p class="sub">NeTelegram — клиент Telegram для Mac с архивом личных диалогов. Он показывает, что было до правки, что стало после неё и какой текст удалили, если сообщение уже было получено.</p>
+			<h1>Твои сообщения.<br><span class="grad">Твои правила.</span></h1>
+			<p class="sub">NeTelegram — клиент Telegram для Mac, который помнит то, что другие забывают: правки, удаления, сгорающие фото и сторис. И не спрашивает разрешения у собеседника.</p>
 			<div class="hero-points">
-                <div>✓ <span><b>Правки сообщений</b> — сравнение «было → стало» в архиве</span></div>
-                <div>✓ <span><b>Удалённый текст</b> — если клиент успел сохранить исходное сообщение</span></div>
-                <div>✓ <span><b>Фото и файлы</b> — попытка переноса в архив с понятным статусом</span></div>
-                <div>✓ <span><b>Несколько аккаунтов</b> — переключение в одном окне</span></div>
-            </div>
+				<div><svg width="17" height="17" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="7" stroke="#4cd97b" stroke-width="1.6"/><path d="M5 8.2l2 2 4-4.4" stroke="#4cd97b" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span><b>Автосейв сгорающего контента</b> — view-once фото, видео, войсы и сторис копируются при просмотре</span></div>
+				<div><svg width="17" height="17" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="7" stroke="#4cd97b" stroke-width="1.6"/><path d="M5 8.2l2 2 4-4.4" stroke="#4cd97b" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span><b>Правки и удаления</b> — «было → стало», удалённые остаются в чате с пометкой</span></div>
+				<div><svg width="17" height="17" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="7" stroke="#4cd97b" stroke-width="1.6"/><path d="M5 8.2l2 2 4-4.4" stroke="#4cd97b" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span><b>Пересылка из защищённых чатов</b> — копией, когда обычная пересылка запрещена</span></div>
+				<div><svg width="17" height="17" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="7" stroke="#4cd97b" stroke-width="1.6"/><path d="M5 8.2l2 2 4-4.4" stroke="#4cd97b" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span><b>Режим невидимки</b> — без «прочитано», «онлайн» и «печатает» + 30 аккаунтов в одном окне</span></div>
+			</div>
 			<div class="hero-acts">
 				<a class="btn-primary" href="#download">Скачать для Mac
 					<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2v8m0 0L5 7.4M8 10l3-2.6M3 13h10" stroke="#fff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -320,81 +319,235 @@ footer { border-top: 1px solid var(--line); padding: 34px 0 44px; margin-top: 30
 				<a class="btn-ghost" href="#features">Что умеет ↓</a>
 			</div>
 			<div class="hero-meta">
-				<span><b>137 МБ</b> ZIP</span>
+				<span><b>74 МБ</b> ZIP</span>
 				<span><b>macOS 12+</b></span>
 				<span><b>arm64</b> нативно</span>
 				<span>подписано и нотариализовано Apple</span>
 			</div>
 		</div>
 
-		<div class="mock" aria-label="Иллюстрация архива сообщений">
-            <div class="mock-title"><i></i><i></i><i></i></div>
-            <div class="mock-body">
-                <div class="mock-side">
-                    <div class="mock-row on"><span class="av av1">А</span><span class="t"><b>Алина</b><span>Встреча завтра…</span></span></div>
-                    <div class="mock-row"><span class="av av2">М</span><span class="t"><b>Максим</b><span>Отправил файл</span></span></div>
-                    <div class="mock-row"><span class="av av3">К</span><span class="t"><b>Команда</b><span>12 сообщений</span></span></div>
-                </div>
-                <div class="mock-main">
-                    <div class="mock-head"><b>Архив · Алина</b><span class="pill pill-ttl">личный диалог</span></div>
-                    <div class="bubble bub-in bub-was"><span class="lbl">Было</span>Встречаемся сегодня в 14:00</div>
-                    <div class="bubble bub-in bub-now"><span class="lbl">Стало</span>Встречаемся завтра в 15:00<div class="bub-meta"><span>правка сохранена</span></div></div>
-                    <div class="bubble bub-in bub-del"><span class="lbl">Удалённое сообщение</span>Кинула отчёт вечером, посмотри<div class="bub-meta"><span>снимок был в архиве до удаления</span></div></div>
-                    <div class="mock-note">Иллюстрация, не скриншот сборки. Примеры сообщений вымышлены.</div>
-                </div>
-            </div>
-        </div>
+		<div class="mock" aria-hidden="true">
+			<div class="mock-title"><i></i><i></i><i></i></div>
+			<div class="mock-body">
+				<div class="mock-side">
+					<div class="mock-row on"><span class="av av1">А</span><span class="t"><b>Алина</b><span>Встреча завтра…</span></span></div>
+					<div class="mock-row"><span class="av av2">М</span><span class="t"><b>Максим</b><span>Отправил файл</span></span></div>
+					<div class="mock-row"><span class="av av3">К</span><span class="t"><b>Команда</b><span>12 сообщений</span></span></div>
+					<div class="mock-row"><span class="av av4">Л</span><span class="t"><b>Лена</b><span>Спасибо! 🙏</span></span></div>
+				</div>
+				<div class="mock-main">
+					<div class="mock-head"><b>Алина · личный диалог</b><span class="pill pill-ttl">часы ⏳ сгорели</span></div>
+					<div class="bubble bub-in bub-was">
+						<span class="lbl">Фото с таймером · сгорело в чате</span>
+						<div style="display:flex;gap:10px;align-items:center">
+							<span class="av av1" style="width:44px;height:44px;border-radius:12px">📷</span>
+							<span class="bub-strike">photo_5391.jpg</span>
+						</div>
+						<span class="saved-tag">✓ копия сохранена · ~/Downloads/AccountBank/ttl/</span>
+					</div>
+					<div class="bubble bub-in bub-del">
+						<span class="lbl" style="color:var(--red);font-weight:700;font-size:10px;letter-spacing:.08em;text-transform:uppercase;display:block;margin-bottom:4px">deleted</span>
+						Кинула отчёт вечером, посмотри 🙏
+						<span class="saved-tag" style="color:var(--dim)">↺ удалено у отправителя · снимок в архиве</span>
+					</div>
+					<div class="bubble bub-in bub-now">
+						<span class="lbl">После правки</span>
+						Встречаемся завтра в 15:00, а не в 14:00
+						<div class="bub-meta"><span>было: «…в 14:00»</span><span>история: 2 версии</span></div>
+					</div>
+					<div class="mock-note">Иллюстрация. Реальный клиент делает это сам — молча.</div>
+				</div>
+			</div>
+		</div>
 	</div>
 </header>
 
-<section id="features"><div class="wrap"><div class="sec-head rv"><span class="kicker">01 · Возможности</span><h2>Переписка меняется.<br>Архив помогает понять как.</h2><p>NeTelegram основан на Telegram Desktop. Новые записи по умолчанию относятся к личным диалогам; охват можно изменить в настройках.</p></div><div class="grid">
-<div class="f-card rv"><div class="f-ico">↺</div><h3>История правок</h3><p>В архиве видно прежний и новый текст сообщения. Длинные записи можно раскрыть полностью.</p></div>
-<div class="f-card rv"><div class="f-ico">🗑</div><h3>Удалённые сообщения</h3><p>Текст остаётся в локальном архиве, если клиент получил и сохранил его до удаления.</p></div>
-<div class="f-card rv"><div class="f-ico">📷</div><h3>Фото, видео, GIF и файлы</h3><p>Для доступного вложения клиент пытается создать копию в архивном чате и показывает результат. Копия не гарантирована; локального кэша вложений в этой beta нет.</p></div>
-<div class="f-card rv"><div class="f-ico">🗄</div><h3>Локальный архив</h3><p>Историю можно посмотреть в клиенте и экспортировать в JSON. Записи хранятся зашифрованными.</p></div>
-<div class="f-card rv"><div class="f-ico">☁️</div><h3>Архивный чат с темами</h3><p>По желанию события отправляются в ваш чат Telegram с отдельной темой для каждого диалога.</p></div>
-<div class="f-card rv"><div class="f-ico">👥</div><h3>Несколько аккаунтов</h3><p>Переключайтесь между аккаунтами в одном окне. Другие подключённые аккаунты продолжают получать сообщения.</p></div>
-<div class="f-card rv"><div class="f-ico">🗂</div><h3>Компактный список</h3><p>Включите короткие строки чатов и сортировку непрочитанных. Изменения применяются без перезапуска.</p></div>
-<div class="f-card rv"><div class="f-ico">⌨️</div><h3>Автозамены и фильтр</h3><p>Задайте быстрые текстовые замены и правила, которые визуально приглушают выбранные сообщения.</p></div>
-</div></div></section>
+<section id="features">
+	<div class="wrap">
+		<div class="sec-head rv">
+			<span class="kicker">01 · Возможности</span>
+			<h2>Всё, что официальный клиент<br>делает «вежливо» — здесь по-твоему</h2>
+			<p>NeTelegram основан на Telegram Desktop и собран для тех, кто работает с перепиской, а не любуется ей. Функции включены по умолчанию, отключаются в настройках.</p>
+		</div>
+		<div class="grid">
+			<div class="f-card rv"><span class="tag tag-hot">фишка</span>
+				<div class="f-ico">⏳</div>
+				<h3>Автосейв сгорающего контента</h3>
+				<p>View-once фото и видео, таймерные войсы и сторис — при просмотре копия тихо падает в твои папки <span class="mono">ttl/</span> и <span class="mono">stories/</span>. Отправитель по-прежнему видит «одноразовость». А у тебя — вечность.</p>
+			</div>
+			<div class="f-card rv"><span class="tag tag-hot">фишка</span>
+				<div class="f-ico">↺</div>
+				<h3>Правки и удаления</h3>
+				<p>Каждое изменение сообщения пишется в зашифрованный архив: «было → стало». Удалённые собеседником остаются в чате полупрозрачными с пометкой <i>deleted</i> — и навсегда в архиве.</p>
+			</div>
+			<div class="f-card rv"><span class="tag tag-hot">фишка</span>
+				<div class="f-ico">🛡</div>
+				<h3>Пересылка из защищённых чатов</h3>
+				<p>Канал запретил пересылку? NeTelegram отправит <b>копию</b> — фото и файлы перекачиваются и уходят как новое сообщение. Текст, подписи и форматирование сохраняются.</p>
+			</div>
+			<div class="f-card rv">
+				<div class="f-ico">👻</div>
+				<h3>Режим невидимки</h3>
+				<p>Без галочек «прочитано», без «онлайн», без «печатает». Читаешь когда хочешь — собеседник видит тишину. Сторис просматриваются, не попадая в список зрителей.</p>
+			</div>
+			<div class="f-card rv">
+				<div class="f-ico">🗄</div>
+				<h3>Зашифрованный архив AES-256</h3>
+				<p>Вся история правок, удалений, онлайнов и «кто прочитал» — в локальной базе, зашифрованной AES-256-GCM ключом твоего аккаунта. Экспорт в JSON — одним пунктом меню.</p>
+			</div>
+			<div class="f-card rv">
+				<div class="f-ico">☁️</div>
+				<h3>Облачный архив с темами</h3>
+				<p>Опционально: события дублируются в твой приватный форум-архив — по теме на каждый диалог. Видно со всех устройств, даже после чистки кэша.</p>
+			</div>
+			<div class="f-card rv">
+				<div class="f-ico">🗂</div>
+				<h3>Порядок в чатах</h3>
+				<p>Вкладка «Admin» — чаты, где ты админ или владелец. Компактный список, непрочитанные сверху, локальные закрепы сверх лимита, папки по ключевым словам.</p>
+			</div>
+			<div class="f-card rv">
+				<div class="f-ico">⌨️</div>
+				<h3>Composer для профи</h3>
+				<p>Автозамены текста, повтор сообщения, форвард в Избранное одним кликом, выделение до 10 000 сообщений, перезапись ссылок x.com → fixupx, калькулятор в поле.</p>
+			</div>
+			<div class="f-card rv"><span class="tag tag-new">для банка</span>
+				<div class="f-ico">👥</div>
+				<h3>До 30 аккаунтов</h3>
+				<p>Все рабочие и личные аккаунты в одном окне, каждый — со своей историей. Уведомления и сообщения продолжают приходить на все аккаунты одновременно.</p>
+			</div>
+			<div class="f-card rv">
+				<div class="f-ico">🚫</div>
+				<h3>Без рекламы</h3>
+				<p>Спонсорские сообщения в каналах скрыты полностью — и в ленте, и в медиа-вьюере. Ничего не грузится, ничего не показывается.</p>
+			</div>
+			<div class="f-card rv">
+				<div class="f-ico">👁</div>
+				<h3>Тихий просмотр</h3>
+				<p>Peek last seen: точное время последнего визита у контактов со скрытым статусом. Regex-фильтр приглушает спам. Ignore-лист прячет неугодных авторов.</p>
+			</div>
+			<div class="f-card rv">
+				<div class="f-ico">🔒</div>
+				<h3>Стабильность и приватность</h3>
+				<p>Один профиль на все сборки — вход один раз. Скриншоты работают всегда: окна не прячутся от захвата, пока ты сам не включишь режим стримера.</p>
+			</div>
+		</div>
+	</div>
+</section>
 
-<section id="archive" style="background:var(--bg2);border-top:1px solid var(--line);border-bottom:1px solid var(--line)"><div class="wrap"><div class="sec-head rv"><span class="kicker">02 · Архив</span><h2>Как сохраняется история</h2><p>Клиент записывает доступные снимки сообщений. Если исходного сообщения у него не было, восстановить его после удаления нельзя.</p></div><div class="steps"><div class="step rv"><h3>Сообщение</h3><p>В личном диалоге клиент сохраняет доступный текст. Для групп и каналов есть отдельные настройки охвата.</p></div><div class="step rv"><h3>Правка или удаление</h3><p>Архив связывает исходный снимок с изменением или удалением и показывает историю по диалогу.</p></div><div class="step rv"><h3>Просмотр</h3><p>Откройте локальный архив, экспортируйте JSON или настройте отправку событий в собственный архивный чат с темами.</p></div></div></div></section>
+<section id="archive" style="background: var(--bg2); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);">
+	<div class="wrap">
+		<div class="sec-head rv">
+			<span class="kicker">02 · Архив</span>
+			<h2>Как устроен архив</h2>
+			<p>Три уровня сохранности: живой чат, зашифрованная локальная база и — по желанию — твоё личное облако.</p>
+		</div>
+		<div class="steps">
+			<div class="step rv">
+				<h3>Событие</h3>
+				<p>Собеседник правит или удаляет сообщение, отправляет сгорающее фото, выходит в сеть. NeTelegram фиксирует снимок <b>до</b> того, как сервер его перепишет.</p>
+			</div>
+			<div class="step rv">
+				<h3>Хранение</h3>
+				<p>Снимок уходит в <span class="mono">archive.ab</span> — SQLite с AES-256-GCM на каждой записи. Ключ выводится из локального ключа аккаунта. Чистка кэша архиву не страшна.</p>
+			</div>
+			<div class="step rv">
+				<h3>Доступ</h3>
+				<p>Просмотр в клиенте по диалогам и категориям, экспорт всего архива в JSON, или облачное зеркало: приватный форум с темой на каждый чат — открывается с любого устройства.</p>
+			</div>
+		</div>
+	</div>
+</section>
 
-<section id="compare"><div class="wrap"><div class="sec-head rv"><span class="kicker">03 · Сравнение</span><h2>Клиенты Telegram для Mac</h2><p>Сравниваем заявленный разработчиками акцент продуктов. Отсутствие функции в описании не доказывает её отсутствия в клиенте.</p></div><div class="cmp-wrap rv"><table class="cmp"><caption>Сравнение по публичным описаниям клиентов</caption><thead><tr><th scope="col">Клиент</th><th scope="col">Платформа</th><th scope="col">Основной акцент</th><th scope="col">История правок и удалений</th></tr></thead><tbody>
-<tr><th scope="row" class="col-us">NeTelegram beta</th><td>macOS 12+, Apple Silicon</td><td>Личный архив и несколько аккаунтов</td><td>Локальная история при наличии исходного снимка</td></tr>
-<tr><th scope="row"><a href="https://telegram.org/desktop/mac" rel="noopener noreferrer">Telegram Desktop ↗</a></th><td>Mac, Windows, Linux</td><td>Официальный настольный клиент</td><td>Отдельный архив в описании не заявлен</td></tr>
-<tr><th scope="row"><a href="https://telegram.org/macos" rel="noopener noreferrer">Telegram for macOS ↗</a></th><td>Mac</td><td>Официальный клиент для macOS</td><td>Отдельный архив в описании не заявлен</td></tr>
-<tr><th scope="row"><a href="https://github.com/nicegram/nicegram-desktop" rel="noopener noreferrer">Nicegram Desktop ↗</a></th><td>Mac, Windows, Linux</td><td>Независимый клиент на основе Telegram Desktop</td><td>Отдельный архив в описании не заявлен</td></tr>
-</tbody></table></div><p class="cmp-note">Сравнение по страницам разработчиков; ссылки находятся в названиях клиентов. «Не заявлен» означает только отсутствие упоминания в этих описаниях.</p></div></section>
+<section id="compare">
+	<div class="wrap">
+		<div class="sec-head rv">
+			<span class="kicker">03 · Сравнение</span>
+			<h2>Клиенты Telegram для Mac</h2>
+			<p>Честная таблица по заявленным возможностям. AyuGram Desktop — ближайший сосед по «архивным» функциям; NeTelegram легче и заточен под Mac и десятки аккаунтов.</p>
+		</div>
+		<div class="cmp-wrap rv">
+			<table class="cmp">
+				<thead>
+					<tr><th>Клиент</th><th>Архив правок/удалений</th><th>Автосейв сгорающего</th><th>Ghost mode</th><th>Пересылка из защищённых</th><th>Аккаунтов</th></tr>
+				</thead>
+				<tbody>
+					<tr>
+						<td class="col-us">NeTelegram beta</td>
+						<td class="col-us yes">✓ было→стало + удалённые в чате</td>
+						<td class="col-us yes">✓ фото, видео, войсы, сторис</td>
+						<td class="col-us yes">✓ по умолчанию</td>
+						<td class="col-us yes">✓ копией с перекачкой</td>
+						<td class="col-us yes">до 30</td>
+					</tr>
+					<tr><td>Telegram Desktop</td><td class="no">—</td><td class="no">—</td><td class="no">—</td><td class="no">—</td><td class="part">до 10</td></tr>
+					<tr><td>Telegram for macOS</td><td class="no">—</td><td class="no">—</td><td class="no">—</td><td class="no">—</td><td class="part">до 10</td></tr>
+					<tr><td>AyuGram Desktop</td><td class="yes">✓</td><td class="part">частично</td><td class="yes">✓</td><td class="part">частично</td><td class="part">до 10</td></tr>
+					<tr><td>Nicegram Desktop</td><td class="no">не заявлен</td><td class="no">не заявлен</td><td class="part">частично</td><td class="no">не заявлен</td><td class="part">до 10</td></tr>
+				</tbody>
+			</table>
+		</div>
+		<p class="cmp-note">«Не заявлен» — функция не указана в публичном описании клиента. Сравнение по страницам разработчиков на октябрь 2026.</p>
+	</div>
+</section>
 
-<section id="faq" style="background:var(--bg2);border-top:1px solid var(--line);border-bottom:1px solid var(--line)"><div class="wrap"><div class="sec-head rv"><span class="kicker">04 · Вопросы</span><h2>Что получится сохранить?</h2><p>Ответы о границах текущей beta.</p></div><div class="faq">
-<details class="q rv" open><summary>Можно ли увидеть удалённое сообщение?</summary><div class="a">Да, если NeTelegram успел сохранить исходный текст до удаления. Сообщение будет в архиве, а не останется в обычной ленте чата.</div></details>
-<details class="q rv"><summary>Сохраняются ли удалённые фото и видео?</summary><div class="a">Клиент пытается перенести доступное вложение в архивный чат и показывает статус. После удаления исходного сообщения ссылка на файл может перестать работать. Гарантированной локальной копии пока нет.</div></details>
-<details class="q rv"><summary>Сохраняются ли самоуничтожающиеся фото?</summary><div class="a">Нет. Эта сборка пропускает медиа с таймером самоуничтожения и не создаёт их копии.</div></details>
-<details class="q rv"><summary>Можно ли переслать сообщение из защищённого чата?</summary><div class="a">Обычная пересылка работает там, где её разрешает Telegram. Защита контента может запретить пересылку; гарантированного обхода нет.</div></details>
-<details class="q rv"><summary>Есть ли режим невидимки?</summary><div class="a">Нет. В публичной beta функции скрытия прочтения и присутствия выключены.</div></details>
-<details class="q rv"><summary>Где хранится архив?</summary><div class="a">Локальные записи хранятся в зашифрованном архиве клиента. При настройке облачного архива события также отправляются в ваш чат с темами.</div></details>
-<details class="q rv"><summary>Как установить клиент?</summary><div class="a">Скачайте подписанный ZIP, распакуйте AccountBank.app и перенесите его в «Программы». Внутреннее имя приложения в этой сборке ещё старое.</div></details>
-</div></div></section>
+<section id="faq" style="background: var(--bg2); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);">
+	<div class="wrap">
+		<div class="sec-head rv">
+			<span class="kicker">04 · Вопросы</span>
+			<h2>Спрашивают перед установкой</h2>
+			<p>Короткие честные ответы — без самоцензуры.</p>
+		</div>
+		<div class="faq">
+			<details class="q rv" open>
+				<summary>Точно ли сохраняются самоуничтожающиеся фото и видео?</summary>
+				<div class="a"><b>Да.</b> При просмотре view-once фото, видео и таймерного войса клиент сохраняет копию в <span class="mono">~/Downloads/AccountBank/ttl/</span>. Сторис — в <span class="mono">stories/</span>. Оригинал в чате сгорает как обычно; копия остаётся у тебя.</div>
+			</details>
+			<details class="q rv">
+				<summary>А если сообщение удалили — я его увижу?</summary>
+				<div class="a"><b>Да, если клиент успел его получить.</b> Удалённые собеседником сообщения остаются в чате — полупрозрачные, с пометкой — и пишутся снимком в зашифрованный архив. Восстановить то, что никогда не долетало до клиента, разумеется, нельзя.</div>
+			</details>
+			<details class="q rv">
+				<summary>Что с чатами, где пересылка запрещена?</summary>
+				<div class="a"><b>Пересылай спокойно.</b> Если в канале включена защита контента, NeTelegram отправляет копию: медиа перекачивается и уходит как новое сообщение — с подписью и форматированием. Обычная пересылка из таких чатов работает там, где её разрешает сам Telegram.</div>
+			</details>
+			<details class="q rv">
+				<summary>Собеседник узнает, что я читаю его сообщения?</summary>
+				<div class="a"><b>Нет.</b> Режим невидимки включён по умолчанию: без «прочитано», без «онлайн», без «печатает», просмотры сторис не отмечаются. Отключается в настройках — в том числе отдельно для каждого аккаунта.</div>
+			</details>
+			<details class="q rv">
+				<summary>Где лежат данные и не утекут ли они?</summary>
+				<div class="a">Локальный архив — <span class="mono">archive.ab</span> рядом с данными аккаунта: записи шифруются AES-256-GCM, ключ выводится из локального ключа аккаунта. Облачное зеркало — опция: события уходят в <b>твой собственный</b> приватный форум, видимый только твоим устройствам.</div>
+			</details>
+			<details class="q rv">
+				<summary>А это вообще законно?</summary>
+				<div class="a">Клиент использует собственный API-ключ и стандартный протокол Telegram. Нестандартные функции — сохранение копий просмотренного, тихое чтение — это твои решения о своих данных; ответственность за использование на тебе, как и в любом неофициальном клиенте (AyuGram, 64Gram и других).</div>
+			</details>
+			<details class="q rv">
+				<summary>Чем отличается от официального клиента?</summary>
+				<div class="a">NeTelegram — независимый форк Telegram Desktop для Apple Silicon. Официальные клиенты сознательно не хранят историю правок, не копируют сгорающее медиа и не дают читать «втихую». Здесь — дают. Плюс 30 аккаунтов, порядок в списке чатов и composer для тех, кто живёт в переписке.</div>
+			</details>
+		</div>
+	</div>
+</section>
 
 <section id="download">
 	<div class="wrap">
 		<div class="dl rv">
 			<span class="kicker">Скачать</span>
 			<h2 style="margin-top:18px">NeTelegram для Mac</h2>
-			<p>Предварительная сборка beta 1. ZIP подписан сертификатом Developer ID и нотариализован Apple. Внутри пока находится AccountBank.app.</p>
+			<p>Предварительная сборка beta 2 с полным архивом. ZIP подписан сертификатом Developer ID и нотариализован Apple. Распакуй и пользуйся.</p>
 			<div class="dl-meta">
 				<span>📦 NeTelegram-macOS-arm64.zip</span>
-				<span>137 МБ</span>
+				<span>74 МБ</span>
 				<span>macOS 12+ · Apple Silicon</span>
-				<span>v0.1.0-beta.1</span>
+				<span>v0.1.0-beta.2</span>
 			</div>
-			<a class="btn-primary" href="https://github.com/AffPapa/AccountBank/releases/download/netelegram-v0.1.0-beta.1/NeTelegram-macOS-arm64.zip">Скачать ZIP · 137 МБ</a>
-			<div class="dl-sha mono">SHA-256: a52f2b192a61ab641828de3af9c4fa4ddaebb4aea937719a4f751154fca49829</div>
+			<a class="btn-primary" href="https://github.com/AffPapa/AccountBank/releases/download/netelegram-v0.1.0-beta.2/NeTelegram-macOS-arm64.zip" download>Скачать ZIP · 74 МБ</a>
+			<div class="dl-sha mono">SHA-256: 5d84c797d920f64699b566ebb34963760acde62abfcadc7b2e9082ab3d44d437</div>
 			<div class="dl-steps">
 				<div class="dl-step"><b>1 · Распакуй</b>Скачай ZIP и распакуй архив. Внутри — приложение (в этой сборке оно называется AccountBank.app).</div>
 				<div class="dl-step"><b>2 · Запусти</b>Перенеси .app в «Программы» и открой. Первый запуск — обычный вход по номеру или QR; профиль живёт отдельно от официального Telegram.</div>
-				<div class="dl-step"><b>3 · Проверь</b>Проверь архив на обычном текстовом сообщении из личного диалога: отправь, исправь и удали его с тестового аккаунта.</div>
+				<div class="dl-step"><b>3 · Проверь</b>Открой любое view-once фото, попроси друга удалить сообщение — посмотри меню «Архив». Всё уже работает без настроек.</div>
 			</div>
 		</div>
 	</div>
@@ -404,21 +557,20 @@ footer { border-top: 1px solid var(--line); padding: 34px 0 44px; margin-top: 30
 	<div class="wrap foot">
 		<span>© 2026 NeTelegram — независимый проект на основе Telegram Desktop. Не является официальным приложением Telegram.</span>
 		<span>Иллюстрации интерфейса нарисованы для сайта.</span>
-		<a href="https://github.com/AffPapa/AccountBank" rel="noopener noreferrer">Исходный код на GitHub ↗</a>
 	</div>
 </footer>
 
 <script>
 // SCROLL REVEAL
-const io = 'IntersectionObserver' in window ? new IntersectionObserver((entries) => {
+const io = new IntersectionObserver((entries) => {
 	for (const e of entries) {
 		if (e.isIntersecting) {
 			e.target.classList.add('on');
 			io.unobserve(e.target);
 		}
 	}
-}, { threshold: 0.12 }) : null;
-document.querySelectorAll('.rv').forEach((el) => io ? io.observe(el) : el.classList.add('on'));
+}, { threshold: 0.12 });
+document.querySelectorAll('.rv').forEach((el) => io.observe(el));
 </script>
 </body>
 </html>
