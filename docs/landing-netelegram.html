@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NeTelegram для Mac — история правок и удалённых сообщений Telegram</title>
+<meta name="description" content="Неофициальный клиент Telegram для Mac: история правок и удалённых сообщений в личных диалогах, локальный архив, сравнение версий и архивный чат с темами. Beta для Apple Silicon.">
+<link rel="canonical" href="https://netelegram-mac.iryadom.chatgpt.site/">
+<meta name="robots" content="index,follow">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="NeTelegram">
+<meta property="og:url" content="https://netelegram-mac.iryadom.chatgpt.site/">
+<meta property="og:title" content="NeTelegram — история правок и удалений в личных чатах">
+<meta property="og:description" content="Локальный архив личных диалогов, сравнение версий сообщения и архивный чат с темами.">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<script>document.documentElement.classList.add('js')</script>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"NeTelegram","applicationCategory":"CommunicationApplication","operatingSystem":"macOS 12+ (Apple Silicon)","softwareVersion":"0.1.0-beta.1","url":"https://netelegram-mac.iryadom.chatgpt.site/","downloadUrl":"https://github.com/AffPapa/AccountBank/releases/download/netelegram-v0.1.0-beta.1/NeTelegram-macOS-arm64.zip"}</script>
+<style>
+:root {
+	--bg: #0a0e17;
+	--bg2: #0e1522;
+	--card: #131b2c;
+	--card2: #182238;
+	--line: #223050;
+	--text: #e8edf7;
+	--muted: #94a3bd;
+	--dim: #6b7a99;
+	--accent: #2aabee;
+	--accent2: #8774e8;
+	--green: #4cd97b;
+	--red: #ff6b81;
+	--amber: #ffc65c;
+	--grad: linear-gradient(135deg, #2aabee 0%, #8774e8 100%);
+	--radius: 18px;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+	background: var(--bg);
+	color: var(--text);
+	font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif;
+	line-height: 1.6;
+	overflow-x: hidden;
+	-webkit-font-smoothing: antialiased;
+}
+::selection { background: rgba(42,171,238,.35); }
+.wrap { max-width: 1120px; margin: 0 auto; padding: 0 24px; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+.mono { font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace; }
+.kicker {
+	display: inline-flex; align-items: center; gap: 8px;
+	font-size: 12px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase;
+	color: var(--accent);
+	padding: 7px 14px; border: 1px solid rgba(42,171,238,.35); border-radius: 999px;
+	background: rgba(42,171,238,.08);
+}
+.badge-beta {
+	font-size: 11px; font-weight: 700; color: var(--amber);
+	border: 1px solid rgba(255,198,92,.4); background: rgba(255,198,92,.08);
+	padding: 3px 10px; border-radius: 999px; letter-spacing: .08em;
+}
+h1, h2, h3 { line-height: 1.15; letter-spacing: -0.02em; }
+
+/* NAV */
+nav {
+	position: sticky; top: 0; z-index: 50;
+	backdrop-filter: blur(14px);
+	background: rgba(10,14,23,.78);
+	border-bottom: 1px solid var(--line);
+}
+.nav-in { display: flex; align-items: center; justify-content: space-between; height: 62px; }
+.logo { display: flex; align-items: center; gap: 11px; font-weight: 800; font-size: 19px; color: var(--text); }
+.logo:hover { text-decoration: none; }
+.logo-mark {
+	width: 34px; height: 34px; border-radius: 10px;
+	background: var(--grad);
+	display: flex; align-items: center; justify-content: center;
+	font-size: 17px; color: #fff; font-weight: 800;
+	box-shadow: 0 4px 18px rgba(42,171,238,.4);
+}
+.nav-links { display: flex; gap: 26px; align-items: center; }
+.nav-links a { color: var(--muted); font-size: 14.5px; font-weight: 600; }
+.nav-links a:hover { color: var(--text); text-decoration: none; }
+.nav-cta {
+	padding: 9px 20px; border-radius: 12px; background: var(--grad); color: #fff;
+	font-weight: 700; font-size: 14px; box-shadow: 0 4px 16px rgba(56,120,238,.35);
+}
+.nav-cta:hover { text-decoration: none; filter: brightness(1.1); }
+@media (max-width: 720px) { .nav-links a:not(.nav-cta) { display: none; } }
+
+/* HERO */
+.hero { position: relative; padding: 88px 0 60px; overflow: hidden; }
+.hero::before {
+	content: ""; position: absolute; inset: -40% -20% auto;
+	height: 130%;
+	background:
+		radial-gradient(48% 55% at 18% 22%, rgba(42,171,238,.14), transparent 70%),
+		radial-gradient(42% 50% at 82% 12%, rgba(135,116,232,.13), transparent 70%);
+	pointer-events: none;
+}
+.hero-in { position: relative; display: grid; grid-template-columns: 1.05fr .95fr; gap: 56px; align-items: center; }
+.hero h1 { font-size: clamp(34px, 5.2vw, 56px); font-weight: 800; margin: 22px 0 18px; }
+.hero h1 .grad { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.hero p.sub { font-size: 18px; color: var(--muted); max-width: 520px; margin-bottom: 28px; }
+.hero-points { display: flex; flex-direction: column; gap: 10px; margin-bottom: 34px; }
+.hero-points div { display: flex; gap: 11px; align-items: flex-start; font-size: 15.5px; color: var(--text); }
+.hero-points svg { flex-shrink: 0; margin-top: 4px; }
+.hero-acts { display: flex; gap: 14px; flex-wrap: wrap; }
+.btn-primary {
+	display: inline-flex; align-items: center; gap: 10px;
+	padding: 15px 28px; border-radius: 14px;
+	background: var(--grad); color: #fff; font-weight: 700; font-size: 16px;
+	box-shadow: 0 8px 30px rgba(56,120,238,.4);
+}
+.btn-primary:hover { text-decoration: none; transform: translateY(-2px); transition: .2s; }
+.btn-ghost {
+	display: inline-flex; align-items: center;
+	padding: 15px 24px; border-radius: 14px;
+	border: 1px solid var(--line); color: var(--text); font-weight: 600; font-size: 15px;
+	background: rgba(255,255,255,.02);
+}
+.btn-ghost:hover { text-decoration: none; border-color: var(--accent); }
+.hero-meta { margin-top: 26px; display: flex; gap: 20px; flex-wrap: wrap; font-size: 13px; color: var(--dim); }
+.hero-meta b { color: var(--muted); }
+
+/* MOCK */
+.mock {
+	background: linear-gradient(180deg, var(--card2), var(--card));
+	border: 1px solid var(--line); border-radius: 22px; padding: 14px;
+	box-shadow: 0 30px 80px rgba(0,0,0,.5), 0 0 0 1px rgba(255,255,255,.03) inset;
+	font-size: 13px;
+}
+.mock-title { display: flex; gap: 7px; padding: 2px 6px 12px; }
+.mock-title i { width: 11px; height: 11px; border-radius: 50%; background: #3a4a6a; display: block; }
+.mock-title i:nth-child(1) { background: #ff5f57; } .mock-title i:nth-child(2) { background: #febc2e; } .mock-title i:nth-child(3) { background: #28c840; }
+.mock-body { display: grid; grid-template-columns: 158px 1fr; gap: 12px; min-height: 380px; }
+.mock-side { border-right: 1px solid var(--line); padding-right: 10px; }
+.mock-row { display: flex; gap: 9px; align-items: center; padding: 8px 6px; border-radius: 10px; }
+.mock-row.on { background: rgba(42,171,238,.12); }
+.av { width: 32px; height: 32px; border-radius: 50%; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; color: #fff; }
+.av1 { background: linear-gradient(135deg,#f093fb,#f5576c); }
+.av2 { background: linear-gradient(135deg,#4facfe,#00f2fe); }
+.av3 { background: linear-gradient(135deg,#43e97b,#38f9d7); color:#0b3d2e; }
+.av4 { background: linear-gradient(135deg,#fa709a,#fee140); color:#5b3a00; }
+.mock-row .t { min-width: 0; }
+.mock-row .t b { display: block; font-size: 12.5px; }
+.mock-row .t span { display: block; font-size: 11px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mock-main { display: flex; flex-direction: column; }
+.mock-head { display: flex; justify-content: space-between; align-items: center; padding: 4px 6px 10px; border-bottom: 1px solid var(--line); margin-bottom: 12px; }
+.mock-head b { font-size: 14px; }
+.pill { font-size: 10.5px; padding: 3px 10px; border-radius: 999px; font-weight: 700; }
+.pill-ttl { background: rgba(255,198,92,.15); color: var(--amber); border: 1px solid rgba(255,198,92,.3); }
+.pill-del { background: rgba(255,107,129,.14); color: var(--red); border: 1px solid rgba(255,107,129,.3); }
+.bubble { max-width: 86%; padding: 10px 13px; border-radius: 14px; margin-bottom: 9px; font-size: 12.5px; position: relative; }
+.bub-in { background: var(--card2); border: 1px solid var(--line); border-top-left-radius: 4px; }
+.bub-meta { font-size: 10px; color: var(--dim); margin-top: 6px; display: flex; justify-content: space-between; }
+.bub-was { border: 1px dashed rgba(255,107,129,.5); background: rgba(255,107,129,.05); }
+.bub-was .lbl { color: var(--red); font-weight: 700; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; margin-bottom: 4px; display: block; }
+.bub-strike { text-decoration: line-through; opacity: .75; }
+.bub-now .lbl { color: var(--green); font-weight: 700; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; margin-bottom: 4px; display: block; }
+.bub-del { opacity: .5; }
+.saved-tag { display: inline-flex; gap: 6px; align-items: center; margin-top: 7px; font-size: 10.5px; color: var(--green); font-weight: 600; }
+.mock-note { font-size: 11px; color: var(--dim); text-align: center; padding-top: 10px; }
+
+/* SECTIONS */
+section { padding: 86px 0; }
+.sec-head { max-width: 680px; margin-bottom: 48px; }
+.sec-head h2 { font-size: clamp(28px, 3.6vw, 40px); font-weight: 800; margin: 18px 0 14px; }
+.sec-head p { color: var(--muted); font-size: 17px; }
+
+/* FEATURES */
+.grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+@media (max-width: 940px) { .grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 620px) { .grid { grid-template-columns: 1fr; } }
+.f-card {
+	background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+	padding: 26px; position: relative; overflow: hidden;
+	transition: border-color .25s, transform .25s;
+}
+.f-card:hover { border-color: rgba(42,171,238,.5); transform: translateY(-3px); }
+.f-card::after {
+	content: ""; position: absolute; inset: 0 0 auto; height: 2px;
+	background: var(--grad); opacity: 0; transition: .25s;
+}
+.f-card:hover::after { opacity: 1; }
+.f-ico {
+	width: 46px; height: 46px; border-radius: 13px; margin-bottom: 18px;
+	display: flex; align-items: center; justify-content: center;
+	background: rgba(42,171,238,.12); border: 1px solid rgba(42,171,238,.25);
+}
+.f-card h3 { font-size: 17.5px; font-weight: 700; margin-bottom: 9px; }
+.f-card p { font-size: 14px; color: var(--muted); }
+.f-card .tag {
+	position: absolute; top: 20px; right: 20px; font-size: 9.5px; font-weight: 800;
+	letter-spacing: .1em; text-transform: uppercase; padding: 4px 9px; border-radius: 7px;
+}
+.tag-hot { color: var(--amber); background: rgba(255,198,92,.1); border: 1px solid rgba(255,198,92,.3); }
+.tag-new { color: var(--green); background: rgba(76,217,123,.1); border: 1px solid rgba(76,217,123,.3); }
+
+/* STEPS */
+.steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; counter-reset: step; }
+@media (max-width: 840px) { .steps { grid-template-columns: 1fr; } }
+.step {
+	background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 28px;
+	counter-increment: step; position: relative;
+}
+.step::before {
+	content: "0" counter(step);
+	font-size: 44px; font-weight: 800;
+	background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent;
+	line-height: 1; margin-bottom: 16px; display: block; opacity: .85;
+}
+.step h3 { font-size: 17px; margin-bottom: 9px; }
+.step p { color: var(--muted); font-size: 14px; }
+
+/* COMPARE */
+.cmp-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); }
+table.cmp { width: 100%; border-collapse: collapse; min-width: 780px; font-size: 14px; }
+.cmp th, .cmp td { padding: 15px 18px; text-align: left; border-bottom: 1px solid var(--line); vertical-align: top; }
+.cmp thead th { font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--dim); font-weight: 700; background: var(--bg2); }
+.cmp tbody tr:last-child td { border-bottom: 0; }
+.cmp td:first-child { font-weight: 700; white-space: nowrap; }
+.cmp .yes { color: var(--green); font-weight: 700; }
+.cmp .part { color: var(--amber); font-weight: 600; }
+.cmp .no { color: var(--dim); }
+.cmp .col-us { background: rgba(42,171,238,.05); }
+.cmp-note { font-size: 12.5px; color: var(--dim); margin-top: 14px; }
+
+/* FAQ */
+.faq { max-width: 780px; }
+.q {
+	border: 1px solid var(--line); border-radius: 14px; background: var(--card);
+	margin-bottom: 12px; overflow: hidden; transition: border-color .2s;
+}
+.q[open] { border-color: rgba(42,171,238,.45); }
+.q summary {
+	cursor: pointer; list-style: none; padding: 19px 22px;
+	font-weight: 700; font-size: 15.5px; display: flex; justify-content: space-between; align-items: center; gap: 14px;
+}
+.q summary::-webkit-details-marker { display: none; }
+.q summary::after { content: "+"; font-size: 21px; color: var(--accent); transition: .2s; font-weight: 400; }
+.q[open] summary::after { transform: rotate(45deg); }
+.q .a { padding: 0 22px 20px; color: var(--muted); font-size: 14.5px; }
+.q .a b { color: var(--text); }
+
+/* DOWNLOAD */
+.dl {
+	background:
+		radial-gradient(60% 90% at 50% 0%, rgba(42,171,238,.14), transparent 70%),
+		var(--card);
+	border: 1px solid var(--line); border-radius: 26px; padding: 56px 40px; text-align: center;
+}
+.dl h2 { font-size: clamp(26px, 3.4vw, 36px); font-weight: 800; margin-bottom: 12px; }
+.dl p { color: var(--muted); max-width: 560px; margin: 0 auto 30px; font-size: 15.5px; }
+.dl-meta {
+	display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-bottom: 30px;
+}
+.dl-meta span {
+	font-size: 12.5px; color: var(--muted); padding: 7px 14px; border-radius: 10px;
+	border: 1px solid var(--line); background: var(--bg2);
+}
+.dl-sha {
+	font-size: 11px; color: var(--dim); margin-top: 22px; word-break: break-all;
+	max-width: 560px; margin-left: auto; margin-right: auto;
+}
+.dl-steps { display: grid; grid-template-columns: repeat(3,1fr); gap: 14px; margin-top: 34px; text-align: left; }
+@media (max-width: 720px) { .dl-steps { grid-template-columns: 1fr; } }
+.dl-step { border: 1px solid var(--line); border-radius: 14px; padding: 18px; background: rgba(255,255,255,.02); font-size: 13.5px; color: var(--muted); }
+.dl-step b { display: block; color: var(--text); margin-bottom: 5px; font-size: 14px; }
+
+footer { border-top: 1px solid var(--line); padding: 34px 0 44px; margin-top: 30px; }
+.foot { display: flex; justify-content: space-between; gap: 20px; flex-wrap: wrap; font-size: 13px; color: var(--dim); }
+
+/* REVEAL */
+.js .rv { opacity: 0; transform: translateY(26px); transition: opacity .7s ease, transform .7s ease; }
+.rv.on { opacity: 1; transform: none; }
+
+@media (max-width: 900px) {
+	.hero-in { grid-template-columns: 1fr; }
+	.hero p.sub { max-width: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+	.js .rv { opacity: 1; transform: none; transition: none; }
+	html { scroll-behavior: auto; }
+}
+</style>
+</head>
+<body>
+
+<nav>
+	<div class="wrap nav-in">
+		<a class="logo" href="/"><span class="logo-mark">N</span>NeTelegram</a>
+		<div class="nav-links">
+			<a href="#features">Функции</a>
+			<a href="#archive">Архив</a>
+			<a href="#compare">Сравнение</a>
+			<a href="#faq">Вопросы</a>
+			<a class="nav-cta" href="#download">Скачать</a>
+		</div>
+	</div>
+</nav>
+
+<header class="hero">
+	<div class="wrap hero-in">
+		<div>
+			<span class="kicker">macOS · Apple Silicon <span class="badge-beta">v0.1 beta</span></span>
+			<h1>История сообщений.<br><span class="grad">Контекст остаётся.</span></h1>
+			<p class="sub">NeTelegram — клиент Telegram для Mac с архивом личных диалогов. Он показывает, что было до правки, что стало после неё и какой текст удалили, если сообщение уже было получено.</p>
+			<div class="hero-points">
+                <div>✓ <span><b>Правки сообщений</b> — сравнение «было → стало» в архиве</span></div>
+                <div>✓ <span><b>Удалённый текст</b> — если клиент успел сохранить исходное сообщение</span></div>
+                <div>✓ <span><b>Фото и файлы</b> — попытка переноса в архив с понятным статусом</span></div>
+                <div>✓ <span><b>Несколько аккаунтов</b> — переключение в одном окне</span></div>
+            </div>
+			<div class="hero-acts">
+				<a class="btn-primary" href="#download">Скачать для Mac
+					<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2v8m0 0L5 7.4M8 10l3-2.6M3 13h10" stroke="#fff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+				</a>
+				<a class="btn-ghost" href="#features">Что умеет ↓</a>
+			</div>
+			<div class="hero-meta">
+				<span><b>137 МБ</b> ZIP</span>
+				<span><b>macOS 12+</b></span>
+				<span><b>arm64</b> нативно</span>
+				<span>подписано и нотариализовано Apple</span>
+			</div>
+		</div>
+
+		<div class="mock" aria-label="Иллюстрация архива сообщений">
+            <div class="mock-title"><i></i><i></i><i></i></div>
+            <div class="mock-body">
+                <div class="mock-side">
+                    <div class="mock-row on"><span class="av av1">А</span><span class="t"><b>Алина</b><span>Встреча завтра…</span></span></div>
+                    <div class="mock-row"><span class="av av2">М</span><span class="t"><b>Максим</b><span>Отправил файл</span></span></div>
+                    <div class="mock-row"><span class="av av3">К</span><span class="t"><b>Команда</b><span>12 сообщений</span></span></div>
+                </div>
+                <div class="mock-main">
+                    <div class="mock-head"><b>Архив · Алина</b><span class="pill pill-ttl">личный диалог</span></div>
+                    <div class="bubble bub-in bub-was"><span class="lbl">Было</span>Встречаемся сегодня в 14:00</div>
+                    <div class="bubble bub-in bub-now"><span class="lbl">Стало</span>Встречаемся завтра в 15:00<div class="bub-meta"><span>правка сохранена</span></div></div>
+                    <div class="bubble bub-in bub-del"><span class="lbl">Удалённое сообщение</span>Кинула отчёт вечером, посмотри<div class="bub-meta"><span>снимок был в архиве до удаления</span></div></div>
+                    <div class="mock-note">Иллюстрация, не скриншот сборки. Примеры сообщений вымышлены.</div>
+                </div>
+            </div>
+        </div>
+	</div>
+</header>
+
+<section id="features"><div class="wrap"><div class="sec-head rv"><span class="kicker">01 · Возможности</span><h2>Переписка меняется.<br>Архив помогает понять как.</h2><p>NeTelegram основан на Telegram Desktop. Новые записи по умолчанию относятся к личным диалогам; охват можно изменить в настройках.</p></div><div class="grid">
+<div class="f-card rv"><div class="f-ico">↺</div><h3>История правок</h3><p>В архиве видно прежний и новый текст сообщения. Длинные записи можно раскрыть полностью.</p></div>
+<div class="f-card rv"><div class="f-ico">🗑</div><h3>Удалённые сообщения</h3><p>Текст остаётся в локальном архиве, если клиент получил и сохранил его до удаления.</p></div>
+<div class="f-card rv"><div class="f-ico">📷</div><h3>Фото, видео, GIF и файлы</h3><p>Для доступного вложения клиент пытается создать копию в архивном чате и показывает результат. Копия не гарантирована; локального кэша вложений в этой beta нет.</p></div>
+<div class="f-card rv"><div class="f-ico">🗄</div><h3>Локальный архив</h3><p>Историю можно посмотреть в клиенте и экспортировать в JSON. Записи хранятся зашифрованными.</p></div>
+<div class="f-card rv"><div class="f-ico">☁️</div><h3>Архивный чат с темами</h3><p>По желанию события отправляются в ваш чат Telegram с отдельной темой для каждого диалога.</p></div>
+<div class="f-card rv"><div class="f-ico">👥</div><h3>Несколько аккаунтов</h3><p>Переключайтесь между аккаунтами в одном окне. Другие подключённые аккаунты продолжают получать сообщения.</p></div>
+<div class="f-card rv"><div class="f-ico">🗂</div><h3>Компактный список</h3><p>Включите короткие строки чатов и сортировку непрочитанных. Изменения применяются без перезапуска.</p></div>
+<div class="f-card rv"><div class="f-ico">⌨️</div><h3>Автозамены и фильтр</h3><p>Задайте быстрые текстовые замены и правила, которые визуально приглушают выбранные сообщения.</p></div>
+</div></div></section>
+
+<section id="archive" style="background:var(--bg2);border-top:1px solid var(--line);border-bottom:1px solid var(--line)"><div class="wrap"><div class="sec-head rv"><span class="kicker">02 · Архив</span><h2>Как сохраняется история</h2><p>Клиент записывает доступные снимки сообщений. Если исходного сообщения у него не было, восстановить его после удаления нельзя.</p></div><div class="steps"><div class="step rv"><h3>Сообщение</h3><p>В личном диалоге клиент сохраняет доступный текст. Для групп и каналов есть отдельные настройки охвата.</p></div><div class="step rv"><h3>Правка или удаление</h3><p>Архив связывает исходный снимок с изменением или удалением и показывает историю по диалогу.</p></div><div class="step rv"><h3>Просмотр</h3><p>Откройте локальный архив, экспортируйте JSON или настройте отправку событий в собственный архивный чат с темами.</p></div></div></div></section>
+
+<section id="compare"><div class="wrap"><div class="sec-head rv"><span class="kicker">03 · Сравнение</span><h2>Клиенты Telegram для Mac</h2><p>Сравниваем заявленный разработчиками акцент продуктов. Отсутствие функции в описании не доказывает её отсутствия в клиенте.</p></div><div class="cmp-wrap rv"><table class="cmp"><caption>Сравнение по публичным описаниям клиентов</caption><thead><tr><th scope="col">Клиент</th><th scope="col">Платформа</th><th scope="col">Основной акцент</th><th scope="col">История правок и удалений</th></tr></thead><tbody>
+<tr><th scope="row" class="col-us">NeTelegram beta</th><td>macOS 12+, Apple Silicon</td><td>Личный архив и несколько аккаунтов</td><td>Локальная история при наличии исходного снимка</td></tr>
+<tr><th scope="row"><a href="https://telegram.org/desktop/mac" rel="noopener noreferrer">Telegram Desktop ↗</a></th><td>Mac, Windows, Linux</td><td>Официальный настольный клиент</td><td>Отдельный архив в описании не заявлен</td></tr>
+<tr><th scope="row"><a href="https://telegram.org/macos" rel="noopener noreferrer">Telegram for macOS ↗</a></th><td>Mac</td><td>Официальный клиент для macOS</td><td>Отдельный архив в описании не заявлен</td></tr>
+<tr><th scope="row"><a href="https://github.com/nicegram/nicegram-desktop" rel="noopener noreferrer">Nicegram Desktop ↗</a></th><td>Mac, Windows, Linux</td><td>Независимый клиент на основе Telegram Desktop</td><td>Отдельный архив в описании не заявлен</td></tr>
+</tbody></table></div><p class="cmp-note">Сравнение по страницам разработчиков; ссылки находятся в названиях клиентов. «Не заявлен» означает только отсутствие упоминания в этих описаниях.</p></div></section>
+
+<section id="faq" style="background:var(--bg2);border-top:1px solid var(--line);border-bottom:1px solid var(--line)"><div class="wrap"><div class="sec-head rv"><span class="kicker">04 · Вопросы</span><h2>Что получится сохранить?</h2><p>Ответы о границах текущей beta.</p></div><div class="faq">
+<details class="q rv" open><summary>Можно ли увидеть удалённое сообщение?</summary><div class="a">Да, если NeTelegram успел сохранить исходный текст до удаления. Сообщение будет в архиве, а не останется в обычной ленте чата.</div></details>
+<details class="q rv"><summary>Сохраняются ли удалённые фото и видео?</summary><div class="a">Клиент пытается перенести доступное вложение в архивный чат и показывает статус. После удаления исходного сообщения ссылка на файл может перестать работать. Гарантированной локальной копии пока нет.</div></details>
+<details class="q rv"><summary>Сохраняются ли самоуничтожающиеся фото?</summary><div class="a">Нет. Эта сборка пропускает медиа с таймером самоуничтожения и не создаёт их копии.</div></details>
+<details class="q rv"><summary>Можно ли переслать сообщение из защищённого чата?</summary><div class="a">Обычная пересылка работает там, где её разрешает Telegram. Защита контента может запретить пересылку; гарантированного обхода нет.</div></details>
+<details class="q rv"><summary>Есть ли режим невидимки?</summary><div class="a">Нет. В публичной beta функции скрытия прочтения и присутствия выключены.</div></details>
+<details class="q rv"><summary>Где хранится архив?</summary><div class="a">Локальные записи хранятся в зашифрованном архиве клиента. При настройке облачного архива события также отправляются в ваш чат с темами.</div></details>
+<details class="q rv"><summary>Как установить клиент?</summary><div class="a">Скачайте подписанный ZIP, распакуйте AccountBank.app и перенесите его в «Программы». Внутреннее имя приложения в этой сборке ещё старое.</div></details>
+</div></div></section>
+
+<section id="download">
+	<div class="wrap">
+		<div class="dl rv">
+			<span class="kicker">Скачать</span>
+			<h2 style="margin-top:18px">NeTelegram для Mac</h2>
+			<p>Предварительная сборка beta 1. ZIP подписан сертификатом Developer ID и нотариализован Apple. Внутри пока находится AccountBank.app.</p>
+			<div class="dl-meta">
+				<span>📦 NeTelegram-macOS-arm64.zip</span>
+				<span>137 МБ</span>
+				<span>macOS 12+ · Apple Silicon</span>
+				<span>v0.1.0-beta.1</span>
+			</div>
+			<a class="btn-primary" href="https://github.com/AffPapa/AccountBank/releases/download/netelegram-v0.1.0-beta.1/NeTelegram-macOS-arm64.zip">Скачать ZIP · 137 МБ</a>
+			<div class="dl-sha mono">SHA-256: a52f2b192a61ab641828de3af9c4fa4ddaebb4aea937719a4f751154fca49829</div>
+			<div class="dl-steps">
+				<div class="dl-step"><b>1 · Распакуй</b>Скачай ZIP и распакуй архив. Внутри — приложение (в этой сборке оно называется AccountBank.app).</div>
+				<div class="dl-step"><b>2 · Запусти</b>Перенеси .app в «Программы» и открой. Первый запуск — обычный вход по номеру или QR; профиль живёт отдельно от официального Telegram.</div>
+				<div class="dl-step"><b>3 · Проверь</b>Проверь архив на обычном текстовом сообщении из личного диалога: отправь, исправь и удали его с тестового аккаунта.</div>
+			</div>
+		</div>
+	</div>
+</section>
+
+<footer>
+	<div class="wrap foot">
+		<span>© 2026 NeTelegram — независимый проект на основе Telegram Desktop. Не является официальным приложением Telegram.</span>
+		<span>Иллюстрации интерфейса нарисованы для сайта.</span>
+		<a href="https://github.com/AffPapa/AccountBank" rel="noopener noreferrer">Исходный код на GitHub ↗</a>
+	</div>
+</footer>
+
+<script>
+// SCROLL REVEAL
+const io = 'IntersectionObserver' in window ? new IntersectionObserver((entries) => {
+	for (const e of entries) {
+		if (e.isIntersecting) {
+			e.target.classList.add('on');
+			io.unobserve(e.target);
+		}
+	}
+}, { threshold: 0.12 }) : null;
+document.querySelectorAll('.rv').forEach((el) => io ? io.observe(el) : el.classList.add('on'));
+</script>
+</body>
+</html>
